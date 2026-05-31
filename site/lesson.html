@@ -1955,17 +1955,40 @@
         return null;
       }
 
-      /** Fetch and render the quiz for a lesson. */
+      /** Fetch and render the quiz for a lesson, respecting current language. */
       function loadQuiz(path) {
-        var quizUrl = 'https://raw.githubusercontent.com/LittleNBB/ai-engineering-from-scratch/main/' + path + '/quiz.json';
-        fetch(quizUrl)
-          .then(function (res) { return res.ok ? res.json() : null; })
-          .catch(function () { return null; })
-          .then(function (data) {
-            if (!data) return;
-            try { renderQuiz(data); }
-            catch (err) { console.error('renderQuiz failed', err); }
-          });
+        // Remove any existing quiz sections before loading new ones
+        var oldQuizzes = document.querySelectorAll('.quiz-section');
+        for (var i = 0; i < oldQuizzes.length; i++) {
+          oldQuizzes[i].parentNode.removeChild(oldQuizzes[i]);
+        }
+
+        var baseUrl = 'https://raw.githubusercontent.com/LittleNBB/ai-engineering-from-scratch/main/' + path + '/';
+
+        function tryFetch(url) {
+          return fetch(url).then(function (res) { return res.ok ? res.json() : null; }).catch(function () { return null; });
+        }
+
+        if (currentLang && currentLang !== 'en') {
+          // Try language-specific quiz first (e.g. quiz_zh.json), fallback to quiz.json
+          tryFetch(baseUrl + 'quiz_' + currentLang + '.json')
+            .then(function (data) {
+              if (data) return data;
+              return tryFetch(baseUrl + 'quiz.json');
+            })
+            .then(function (data) {
+              if (!data) return;
+              try { renderQuiz(data); }
+              catch (err) { console.error('renderQuiz failed', err); }
+            });
+        } else {
+          tryFetch(baseUrl + 'quiz.json')
+            .then(function (data) {
+              if (!data) return;
+              try { renderQuiz(data); }
+              catch (err) { console.error('renderQuiz failed', err); }
+            });
+        }
       }
 
       /**
@@ -2046,6 +2069,8 @@
               if (currentLessonDocs) {
                 renderLangSwitcher(currentLessonDocs);
               }
+              // Re-render quiz in the new language
+              loadQuiz(lessonPath);
             } catch (err) {
               console.error('renderLesson failed on language switch', err);
             }
@@ -2865,9 +2890,14 @@
         var buildH2 = article.querySelector('#build-it, #build');
         var keyTermsH2 = article.querySelector('#key-terms');
 
-        var preQuizHtml = buildQuizHtml(questions.filter(function (q) { return q.stage === 'pre'; }), 'pre', 'Pre-Lesson Check');
-        var checkQuizHtml = buildQuizHtml(questions.filter(function (q) { return q.stage === 'check'; }), 'check', 'Mid-Lesson Check');
-        var postQuizHtml = buildQuizHtml(questions.filter(function (q) { return q.stage === 'post'; }), 'post', 'Post-Lesson Quiz');
+        var quizLabels = {
+          en: { pre: 'Pre-Lesson Check', check: 'Mid-Lesson Check', post: 'Post-Lesson Quiz', all: 'Quiz' },
+          zh: { pre: '课前检测', check: '课中检测', post: '课后测验', all: '测验' }
+        };
+        var ql = quizLabels[currentLang] || quizLabels['en'];
+        var preQuizHtml = buildQuizHtml(questions.filter(function (q) { return q.stage === 'pre'; }), 'pre', ql.pre);
+        var checkQuizHtml = buildQuizHtml(questions.filter(function (q) { return q.stage === 'check'; }), 'check', ql.check);
+        var postQuizHtml = buildQuizHtml(questions.filter(function (q) { return q.stage === 'post'; }), 'post', ql.post);
 
         if (!preQuizHtml && !checkQuizHtml && !postQuizHtml) {
           var allHtml = buildQuizHtml(questions, 'all', 'Quiz');
