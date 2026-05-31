@@ -184,6 +184,9 @@ graph TD
 ### 步骤 1：文档分块
 
 ```python
+# 文档分块：将长文本按固定大小拆分为带重叠的块
+# chunk_size=200: 每块200个单词，overlap=50: 相邻块重叠50个单词
+# 重叠确保关键信息不会因刚好在边界处而被切断
 def chunk_text(text, chunk_size=200, overlap=50):
     words = text.split()
     chunks = []
@@ -192,7 +195,7 @@ def chunk_text(text, chunk_size=200, overlap=50):
         end = start + chunk_size
         chunk = " ".join(words[start:end])
         chunks.append(chunk)
-        start += chunk_size - overlap
+        start += chunk_size - overlap  # 步长 = 块大小 - 重叠量
     return chunks
 ```
 
@@ -201,22 +204,31 @@ def chunk_text(text, chunk_size=200, overlap=50):
 我们构建一个简单的 embedding 函数。TF-IDF（词频-逆文档频率）不是神经 embedding，但它以一种捕获词重要性的方式将文本转换为向量。文档中频繁出现的词获得较高的 TF。语料库中罕见的词获得较高的 IDF。乘积给出一个向量，其中重要的、有区分度的词具有高值。
 
 ```python
+# TF-IDF Embedding 实现：将文本转换为固定大小的向量
+# TF-IDF = 词频(TF) × 逆文档频率(IDF)
+# - TF：词在当前文档中出现的频率（越高越重要）
+# - IDF：词在整个语料库中的稀有程度（越罕见越有区分度）
+# 最终向量中，重要的、有区分度的词获得高值
 import math
 from collections import Counter
 
 def build_vocabulary(documents):
+    """构建词汇表：所有文档中出现过的唯一词的排序列表"""
     vocab = set()
     for doc in documents:
         vocab.update(doc.lower().split())
     return sorted(vocab)
 
 def compute_tf(text, vocab):
+    """计算词频(TF)：每个词在当前文档中的出现频率"""
     words = text.lower().split()
     count = Counter(words)
     total = len(words)
     return [count.get(word, 0) / total for word in vocab]
 
 def compute_idf(documents, vocab):
+    """计算逆文档频率(IDF)：衡量每个词的稀有程度
+    IDF = log((N+1)/(df+1)) + 1，词越稀有 IDF 越高"""
     n = len(documents)
     idf = []
     for word in vocab:
@@ -225,6 +237,7 @@ def compute_idf(documents, vocab):
     return idf
 
 def tfidf_embed(text, vocab, idf):
+    """将文本转换为 TF-IDF 向量：TF × IDF 逐元素相乘"""
     tf = compute_tf(text, vocab)
     return [t * i for t, i in zip(tf, idf)]
 ```
@@ -232,20 +245,24 @@ def tfidf_embed(text, vocab, idf):
 ### 步骤 3：余弦相似度搜索
 
 ```python
+# 余弦相似度：衡量两个向量方向的一致性（-1 到 1）
+# 忽略向量长度，只关注方向——最适合比较不同长度的文本
 def cosine_similarity(a, b):
-    dot = sum(x * y for x, y in zip(a, b))
-    norm_a = math.sqrt(sum(x * x for x in a))
-    norm_b = math.sqrt(sum(x * x for x in b))
+    dot = sum(x * y for x, y in zip(a, b))      # 点积
+    norm_a = math.sqrt(sum(x * x for x in a))    # 向量 a 的模
+    norm_b = math.sqrt(sum(x * x for x in b))    # 向量 b 的模
     if norm_a == 0 or norm_b == 0:
         return 0.0
     return dot / (norm_a * norm_b)
 
+# 暴力搜索：遍历所有存储的向量，计算与查询的相似度，返回 top-k
+# O(n) 复杂度，生产环境应使用 HNSW 等 ANN 算法（O(log n)）
 def search(query_embedding, stored_embeddings, top_k=5):
     scores = []
     for i, emb in enumerate(stored_embeddings):
         sim = cosine_similarity(query_embedding, emb)
         scores.append((i, sim))
-    scores.sort(key=lambda x: x[1], reverse=True)
+    scores.sort(key=lambda x: x[1], reverse=True)  # 按相似度降序
     return scores[:top_k]
 ```
 
@@ -254,7 +271,11 @@ def search(query_embedding, stored_embeddings, top_k=5):
 这是 RAG 中"增强"发生的地方。取检索到的块，将它们格式化为提示词，要求 LLM 基于提供的上下文来回答。
 
 ```python
+# RAG 提示词构建器：将检索到的块格式化为带上下文的提示词
+# 关键设计：要求模型"仅基于上下文回答"，减少幻觉
+# 并提供"信息不足时如实告知"的兜底指令
 def build_rag_prompt(query, retrieved_chunks):
+    # 将每个块加上来源编号，用分隔线分隔，便于模型引用
     context = "\n\n---\n\n".join(
         f"[Source {i+1}]\n{chunk}"
         for i, chunk in enumerate(retrieved_chunks)
@@ -273,29 +294,42 @@ Answer:"""
 ### 步骤 5：完整的 RAG 流水线
 
 ```python
+# 完整 RAG 流水线：索引（离线）+ 查询（在线）
+# 索引阶段：文档 → 分块 → 构建词汇表 → 计算 IDF → 生成所有块的向量
+# 查询阶段：问题 → 嵌入 → 向量搜索 → 构建提示词 → 返回
 class RAGPipeline:
     def __init__(self):
-        self.chunks = []
-        self.embeddings = []
-        self.vocab = []
-        self.idf = []
+        self.chunks = []       # 所有文档块的文本
+        self.embeddings = []   # 所有文档块的向量
+        self.vocab = []        # 词汇表
+        self.idf = []          # IDF 值（用于查询时的向量化）
 
     def index(self, documents):
+        """索引阶段（离线，对每个文档运行一次）"""
+        # 第1步：将所有文档分块
         all_chunks = []
         for doc in documents:
             all_chunks.extend(chunk_text(doc))
         self.chunks = all_chunks
+
+        # 第2步：在所有块上构建词汇表和 IDF
         self.vocab = build_vocabulary(all_chunks)
         self.idf = compute_idf(all_chunks, self.vocab)
+
+        # 第3步：为每个块生成 TF-IDF 向量
         self.embeddings = [
             tfidf_embed(chunk, self.vocab, self.idf)
             for chunk in all_chunks
         ]
 
     def query(self, question, top_k=5):
+        """查询阶段（在线，每次用户提问时运行）"""
+        # 第1步：将问题嵌入为向量（使用与文档相同的词汇表和 IDF）
         query_emb = tfidf_embed(question, self.vocab, self.idf)
+        # 第2步：向量搜索，找到最相似的 top-k 个块
         results = search(query_emb, self.embeddings, top_k)
         retrieved = [(self.chunks[i], score) for i, score in results]
+        # 第3步：用检索到的块构建 RAG 提示词
         prompt = build_rag_prompt(
             question, [chunk for chunk, _ in retrieved]
         )
@@ -307,7 +341,10 @@ class RAGPipeline:
 在生产中，这里是你调用 LLM API 的地方。在本课中，我们通过从检索上下文中提取最相关的句子来模拟生成。
 
 ```python
+# 简易生成器（模拟 LLM）：从检索到的块中找到与查询最相关的句子
+# 生产环境中这里会调用 LLM API，用检索到的上下文生成自然语言回答
 def simple_generate(prompt, retrieved_chunks):
+    # 从提示词中提取查询部分
     query_words = set(prompt.lower().split("question:")[-1].split())
     best_sentence = ""
     best_score = 0
@@ -316,6 +353,7 @@ def simple_generate(prompt, retrieved_chunks):
             sentence = sentence.strip()
             if not sentence:
                 continue
+            # 简单的词重叠评分：与查询词重叠最多的句子被认为最相关
             words = set(sentence.lower().split())
             overlap = len(query_words & words)
             if overlap > best_score:
@@ -329,22 +367,26 @@ def simple_generate(prompt, retrieved_chunks):
 使用真实的 embedding 模型和 LLM 时，代码几乎不需要改变：
 
 ```python
+# 生产级 RAG 的 OpenAI 实现：替换 TF-IDF 为真实的 embedding 模型
+# 流水线结构不变，只需替换 embed() 和 generate() 函数
 from openai import OpenAI
 
 client = OpenAI()
 
 def embed(text):
+    """使用 OpenAI 的 embedding 模型将文本转换为向量"""
     response = client.embeddings.create(
-        model="text-embedding-3-small",
+        model="text-embedding-3-small",  # 1536 维，性价比高
         input=text
     )
     return response.data[0].embedding
 
 def generate(prompt):
+    """调用 GPT-4o-mini 生成回答，temperature=0 确保确定性输出"""
     response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[{"role": "user", "content": prompt}],
-        temperature=0
+        temperature=0  # 确定性输出，适合 RAG 场景
     )
     return response.choices[0].message.content
 ```
@@ -352,11 +394,14 @@ def generate(prompt):
 或者使用 Anthropic：
 
 ```python
+# Anthropic (Claude) 的 RAG 生成实现
+# 同样的提示词，不同的 API——这就是 RAG 的优势：模型无关
 import anthropic
 
 client = anthropic.Anthropic()
 
 def generate(prompt):
+    """使用 Claude 生成回答——只需更换 API 调用，RAG 流水线其余部分不变"""
     response = client.messages.create(
         model="claude-sonnet-4-20250514",
         max_tokens=1024,
@@ -370,16 +415,20 @@ def generate(prompt):
 对于大规模向量存储，用合适的向量数据库替换暴力搜索：
 
 ```python
+# ChromaDB 向量数据库示例：替代暴力搜索的生产级方案
+# Chroma 内部处理 embedding 和索引，大幅简化 RAG 流水线代码
 import chromadb
 
 client = chromadb.Client()
-collection = client.create_collection("my_docs")
+collection = client.create_collection("my_docs")  # 创建文档集合
 
+# 添加文档块：Chroma 自动计算 embedding（默认使用 all-MiniLM-L6-v2）
 collection.add(
     documents=chunks,
     ids=[f"chunk_{i}" for i in range(len(chunks))]
 )
 
+# 语义搜索：传入自然语言查询，返回最相似的 5 个块
 results = collection.query(
     query_texts=["What is the refund policy?"],
     n_results=5

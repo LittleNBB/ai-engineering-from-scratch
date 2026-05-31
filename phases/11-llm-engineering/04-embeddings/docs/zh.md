@@ -222,6 +222,9 @@ OpenAI 的 text-embedding-3-small 和 text-embedding-3-large 通过 `dimensions`
 ### 步骤 1：文本分块
 
 ```python
+# 固定大小分块：将文本按单词数拆分为固定大小的块，带重叠
+# chunk_size=200: 每块200个单词（约250-300 token）
+# overlap=50: 相邻块重叠50个单词，避免在块边界处切断重要信息
 def chunk_text(text, chunk_size=200, overlap=50):
     words = text.split()
     chunks = []
@@ -230,24 +233,30 @@ def chunk_text(text, chunk_size=200, overlap=50):
         end = start + chunk_size
         chunk = " ".join(words[start:end])
         chunks.append(chunk)
+        # 步长 = chunk_size - overlap，确保重叠部分被保留
         start += chunk_size - overlap
     return chunks
 
 
+# 基于句子的分块：尊重句子边界，不会把一个句子切成两半
+# 比固定分块更智能，因为每个块至少包含完整的句子
 def chunk_by_sentences(text, max_chunk_tokens=200):
+    # 先按句号拆分，重新加上句号，过滤空句子
     sentences = text.replace("\n", " ").split(".")
     sentences = [s.strip() + "." for s in sentences if s.strip()]
     chunks = []
-    current_chunk = []
-    current_length = 0
+    current_chunk = []      # 当前正在构建的块
+    current_length = 0      # 当前块的累计单词数
     for sentence in sentences:
         sentence_length = len(sentence.split())
+        # 如果加入这个句子会超过上限，先把当前块保存，开始新块
         if current_length + sentence_length > max_chunk_tokens and current_chunk:
             chunks.append(" ".join(current_chunk))
             current_chunk = []
             current_length = 0
         current_chunk.append(sentence)
         current_length += sentence_length
+    # 别忘了最后一个块
     if current_chunk:
         chunks.append(" ".join(current_chunk))
     return chunks
@@ -258,22 +267,32 @@ def chunk_by_sentences(text, max_chunk_tokens=200):
 我们使用 TF-IDF 加 L2 归一化实现一个简单的密集 embedding。这不是神经 embedding，但它遵循相同的契约：输入文本，输出固定大小的向量，相似的文本产生相似的向量。
 
 ```python
+# 简易 Embedding 实现：基于 TF-IDF + L2 归一化
+# 虽然不是神经网络 embedding，但遵循相同的契约：
+# 输入文本 → 输出固定大小的密集向量 → 语义相似的文本产生相似的向量
+# 这里用纯 Python + numpy 实现，无需 GPU 或外部 API
 import math
 import numpy as np
 from collections import Counter
 
 class SimpleEmbedder:
     def __init__(self):
-        self.vocab = []
-        self.idf = []
-        self.word_to_idx = {}
+        self.vocab = []           # 词汇表：所有文档中出现过的词，按字母排序
+        self.idf = []             # IDF（逆文档频率）向量：衡量每个词的稀有程度
+        self.word_to_idx = {}     # 词到索引的映射：用于快速查找
 
     def fit(self, documents):
+        """在语料库上训练：构建词汇表和计算 IDF 值"""
+        # 第1步：构建词汇表（所有文档中出现过的唯一词）
         vocab_set = set()
         for doc in documents:
             vocab_set.update(doc.lower().split())
         self.vocab = sorted(vocab_set)
         self.word_to_idx = {w: i for i, w in enumerate(self.vocab)}
+
+        # 第2步：计算每个词的 IDF（逆文档频率）
+        # IDF = log((N+1)/(df+1)) + 1，其中 N=文档总数，df=包含该词的文档数
+        # 词越稀有，IDF 越高，区分度越强（"的" vs "transformer"）
         n = len(documents)
         self.idf = np.zeros(len(self.vocab))
         for i, word in enumerate(self.vocab):
@@ -281,14 +300,20 @@ class SimpleEmbedder:
             self.idf[i] = math.log((n + 1) / (doc_count + 1)) + 1
 
     def embed(self, text):
+        """将文本转换为向量：TF（词频）× IDF，然后 L2 归一化"""
         words = text.lower().split()
         count = Counter(words)
         total = len(words) if words else 1
+
+        # 构建 TF-IDF 向量
         vec = np.zeros(len(self.vocab))
         for word, freq in count.items():
             if word in self.word_to_idx:
-                tf = freq / total
+                tf = freq / total  # 词频 = 该词出现次数 / 文档总词数
                 vec[self.word_to_idx[word]] = tf * self.idf[self.word_to_idx[word]]
+
+        # L2 归一化：将向量缩放到单位长度（模为1）
+        # 归一化后，余弦相似度等价于点积，计算更快
         norm = np.linalg.norm(vec)
         if norm > 0:
             vec = vec / norm
@@ -298,38 +323,51 @@ class SimpleEmbedder:
 ### 步骤 3：相似度函数
 
 ```python
+# 三种相似度度量函数：衡量两个向量之间的"距离"或"相似程度"
+# 选择哪种取决于你的 embedding 是否归一化、以及任务需求
+
 def cosine_similarity(a, b):
-    dot = np.dot(a, b)
-    norm_a = np.linalg.norm(a)
-    norm_b = np.linalg.norm(b)
-    if norm_a == 0 or norm_b == 0:
+    """余弦相似度：衡量两个向量方向的一致性（-1 到 1）
+    忽略向量长度，只关注方向——最适合比较不同长度的文本"""
+    dot = np.dot(a, b)                  # 点积：两个向量对应元素相乘再求和
+    norm_a = np.linalg.norm(a)          # 向量 a 的模（长度）
+    norm_b = np.linalg.norm(b)          # 向量 b 的模
+    if norm_a == 0 or norm_b == 0:      # 零向量的余弦相似度无意义，返回 0
         return 0.0
     return float(dot / (norm_a * norm_b))
 
 
 def dot_product(a, b):
+    """点积：当向量已 L2 归一化时，点积 = 余弦相似度，且计算更快"""
     return float(np.dot(a, b))
 
 
 def euclidean_distance(a, b):
-    return float(np.linalg.norm(a - b))
+    """欧氏距离：向量空间中的直线距离，越小越相似
+    对向量大小敏感，适合聚类和空间最近邻问题"""
+    return float(np.linalg.norm(a - b))  # 两个向量之差的模
 ```
 
 ### 步骤 4：带暴力搜索的向量索引
 
 ```python
+# 向量索引：带暴力搜索（brute-force）的简单向量数据库
+# 暴力搜索 = 遍历所有向量计算相似度，O(n) 复杂度
+# 生产环境应使用 HNSW 等 ANN 算法（O(log n)），但这里用于教学目的
 class VectorIndex:
     def __init__(self):
-        self.vectors = []
-        self.texts = []
-        self.metadata = []
+        self.vectors = []    # 存储所有向量
+        self.texts = []      # 存储对应的原始文本
+        self.metadata = []   # 存储元数据（来源、时间戳等）
 
     def add(self, vector, text, meta=None):
+        """添加一个向量及其对应的文本和元数据"""
         self.vectors.append(vector)
         self.texts.append(text)
         self.metadata.append(meta or {})
 
     def search(self, query_vector, top_k=5, metric="cosine"):
+        """暴力搜索：计算查询向量与所有存储向量的相似度，返回 top-k"""
         scores = []
         for i, vec in enumerate(self.vectors):
             if metric == "cosine":
@@ -337,10 +375,13 @@ class VectorIndex:
             elif metric == "dot":
                 score = dot_product(query_vector, vec)
             elif metric == "euclidean":
+                # 注意：欧氏距离越小越相似，取负数后排序逻辑与余弦一致（越大越好）
                 score = -euclidean_distance(query_vector, vec)
             else:
                 raise ValueError(f"Unknown metric: {metric}")
             scores.append((i, score))
+
+        # 按相似度降序排列，取前 top_k 个
         scores.sort(key=lambda x: x[1], reverse=True)
         results = []
         for idx, score in scores[:top_k]:
@@ -353,44 +394,56 @@ class VectorIndex:
         return results
 
     def size(self):
+        """返回索引中的向量总数"""
         return len(self.vectors)
 ```
 
 ### 步骤 5：语义搜索引擎
 
 ```python
+# 语义搜索引擎：将分块、嵌入、索引、搜索串联成完整的流水线
+# 这就是 RAG（检索增强生成）中"检索"部分的核心架构
 class SemanticSearchEngine:
     def __init__(self, chunk_size=200, overlap=50):
-        self.embedder = SimpleEmbedder()
-        self.index = VectorIndex()
+        self.embedder = SimpleEmbedder()   # 文本→向量的转换器
+        self.index = VectorIndex()         # 向量存储和检索
         self.chunk_size = chunk_size
         self.overlap = overlap
 
     def index_documents(self, documents, source_names=None):
+        """索引文档：分块 → 训练 embedder → 嵌入所有块 → 存入向量索引"""
         all_chunks = []
         all_sources = []
+
+        # 第1步：将每个文档分块
         for i, doc in enumerate(documents):
             chunks = chunk_text(doc, self.chunk_size, self.overlap)
             all_chunks.extend(chunks)
             name = source_names[i] if source_names else f"doc_{i}"
             all_sources.extend([name] * len(chunks))
+
+        # 第2步：在所有块上训练 embedder（构建词汇表和 IDF）
         self.embedder.fit(all_chunks)
+
+        # 第3步：为每个块生成向量并存入索引
         for chunk, source in zip(all_chunks, all_sources):
             vec = self.embedder.embed(chunk)
             self.index.add(vec, chunk, {"source": source})
         return len(all_chunks)
 
     def search(self, query, top_k=5, metric="cosine"):
+        """语义搜索：将查询嵌入为向量，然后在索引中找最相似的块"""
         query_vec = self.embedder.embed(query)
         return self.index.search(query_vec, top_k, metric)
 
     def search_with_scores(self, query, top_k=5):
+        """带格式化的搜索结果：返回文本预览、来源和相似度分数"""
         results = self.search(query, top_k)
         return [
             {
-                "text": r["text"][:200],
+                "text": r["text"][:200],                    # 截取前200字符作为预览
                 "source": r["metadata"].get("source", "unknown"),
-                "score": round(r["score"], 4)
+                "score": round(r["score"], 4)               # 保留4位小数
             }
             for r in results
         ]
@@ -399,12 +452,14 @@ class SemanticSearchEngine:
 ### 步骤 6：比较相似度度量
 
 ```python
+# 相似度度量比较：用同一个查询，分别用三种度量搜索，对比结果差异
+# 用于实验不同度量在同一数据上的表现差异
 def compare_metrics(engine, query, top_k=3):
     results = {}
     for metric in ["cosine", "dot", "euclidean"]:
         hits = engine.search(query, top_k=top_k, metric=metric)
         results[metric] = [
-            {"score": round(h["score"], 4), "preview": h["text"][:80]}
+            {"score": round(h["score"], 4), "preview": h["text"][:80]}  # 只显示前80字符
             for h in hits
         ]
     return results
@@ -415,14 +470,18 @@ def compare_metrics(engine, query, top_k=3):
 使用生产级 embedding API 时，架构保持不变。只有 embedder 发生变化：
 
 ```python
+# OpenAI Embedding API 封装：调用远程模型生成高质量向量
+# 生产环境中替换 SimpleEmbedder 的方式之一——只需改 embedder，搜索逻辑不变
 from openai import OpenAI
 
 client = OpenAI()
 
 def openai_embed(texts, model="text-embedding-3-small", dimensions=None):
+    """批量嵌入：texts 是字符串列表，返回对应的向量列表
+    dimensions 参数支持 Matryoshka 截断（如 256 维代替完整 1536 维）"""
     kwargs = {"model": model, "input": texts}
     if dimensions:
-        kwargs["dimensions"] = dimensions
+        kwargs["dimensions"] = dimensions  # Matryoshka：指定更少维度，减少存储
     response = client.embeddings.create(**kwargs)
     return [item.embedding for item in response.data]
 ```
@@ -430,8 +489,10 @@ def openai_embed(texts, model="text-embedding-3-small", dimensions=None):
 使用 OpenAI 的 Matryoshka 截断——相同模型，更少维度，更低存储：
 
 ```python
-full = openai_embed(["semantic search query"], dimensions=1536)
-compact = openai_embed(["semantic search query"], dimensions=256)
+# Matryoshka 截断示例：同一个查询，1536 维 vs 256 维
+# 256 维向量存储减少 6 倍，检索准确率仅下降约 3-5%
+full = openai_embed(["semantic search query"], dimensions=1536)    # 完整维度
+compact = openai_embed(["semantic search query"], dimensions=256)  # 截断维度
 ```
 
 256 维向量使用 6 倍更少的存储。对于 1000 万个文档，就是 10 GB vs 61 GB。在标准基准测试上的准确率损失大约 3-5%。
@@ -439,25 +500,31 @@ compact = openai_embed(["semantic search query"], dimensions=256)
 使用 Cohere 进行重排：
 
 ```python
+# Cohere 重排序示例：交叉编码器对检索结果进行精排
+# 重排器同时读取查询和文档，比双编码器更准确，但更慢
+# 典型用法：双编码器检索 top-100 → 交叉编码器重排到 top-10
 import cohere
 
 co = cohere.ClientV2()
 
 results = co.rerank(
-    model="rerank-v3.5",
-    query="What is the refund policy?",
-    documents=["Full refund within 30 days...", "No refunds after 90 days..."],
-    top_n=3
+    model="rerank-v3.5",                                    # Cohere 的重排模型
+    query="What is the refund policy?",                     # 用户查询
+    documents=["Full refund within 30 days...", "No refunds after 90 days..."],  # 候选文档
+    top_n=3                                                 # 返回排名前3的结果
 )
 ```
 
 使用本地 embedding 无 API 依赖：
 
 ```python
+# 本地 Embedding 示例：使用 sentence-transformers 库加载开源模型
+# 无需 API 密钥，完全本地运行，适合数据敏感场景或离线环境
+# BAAI/bge-small-en-v1.5 是一个轻量级但效果不错的开源 embedding 模型
 from sentence_transformers import SentenceTransformer
 
-model = SentenceTransformer("BAAI/bge-small-en-v1.5")
-embeddings = model.encode(["semantic search query", "another document"])
+model = SentenceTransformer("BAAI/bge-small-en-v1.5")  # 加载模型（首次会下载权重）
+embeddings = model.encode(["semantic search query", "another document"])  # 批量编码
 ```
 
 我们构建的 VectorIndex 类可以与以上任何一种配合使用。替换 embedding 函数，保持搜索逻辑不变。

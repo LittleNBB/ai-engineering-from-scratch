@@ -225,6 +225,10 @@ graph TD
 ### 步骤 1：LoRA 层
 
 ```python
+# LoRA 层实现：低秩适配的核心组件
+# 原理：将一个大矩阵的更新分解为两个小矩阵 A 和 B 的乘积
+# 原始矩阵 W (d×d) 有 d² 个参数，LoRA 只需 2×d×r 个参数（r << d）
+# 例如 d=4096, r=16 时：参数从 16M 降到 131K（减少 99.2%）
 import torch
 import torch.nn as nn
 import math
@@ -234,12 +238,15 @@ class LoRALayer(nn.Module):
         super().__init__()
         self.rank = rank
         self.alpha = alpha
-        self.scaling = alpha / rank
+        self.scaling = alpha / rank  # 缩放因子：控制 LoRA 更新的影响力大小
 
+        # A 矩阵：用缩放的随机高斯值初始化（r × d_in）
         self.A = nn.Parameter(torch.randn(in_features, rank) * (1 / math.sqrt(rank)))
+        # B 矩阵：初始化为零，确保训练开始时 LoRA 贡献为零（不改变原始模型行为）
         self.B = nn.Parameter(torch.zeros(rank, out_features))
 
     def forward(self, x):
+        # 前向传播：x @ A @ B * scaling，等效于低秩权重更新
         return (x @ self.A @ self.B) * self.scaling
 ```
 
@@ -248,18 +255,23 @@ A 用缩放的随机值初始化。B 初始化为零。乘积 BA 从零开始，
 ### 步骤 2：LoRA 包装的线性层
 
 ```python
+# LoRA 包装的线性层：原始层 + LoRA 旁路
+# 数学表达：y = Wx + (alpha/r) * BAx
+# 原始权重 W 被冻结（不训练），只有 LoRA 的 A 和 B 可训练
 class LinearWithLoRA(nn.Module):
     def __init__(self, linear, rank=8, alpha=16):
         super().__init__()
-        self.linear = linear
-        self.lora = LoRALayer(
+        self.linear = linear  # 原始线性层（冻结）
+        self.lora = LoRALayer(  # LoRA 适配器（可训练）
             linear.in_features, linear.out_features, rank, alpha
         )
 
+        # 冻结原始层的所有参数
         for param in self.linear.parameters():
             param.requires_grad = False
 
     def forward(self, x):
+        # 原始输出 + LoRA 修正 = 最终输出
         return self.linear(x) + self.lora(x)
 ```
 
@@ -268,17 +280,23 @@ class LinearWithLoRA(nn.Module):
 ### 步骤 3：将 LoRA 注入模型
 
 ```python
+# LoRA 注入器：在模型的指定层中注入 LoRA 适配器
+# 工作流程：冻结所有参数 → 遍历模块树 → 找到目标线性层 → 替换为 LoRA 版本
 def inject_lora(model, target_modules, rank=8, alpha=16):
+    # 第1步：冻结模型中的所有参数
     for param in model.parameters():
         param.requires_grad = False
 
+    # 第2步：遍历模型，找到名称匹配目标的线性层并替换
     lora_layers = {}
     for name, module in model.named_modules():
         if isinstance(module, nn.Linear):
             if any(t in name for t in target_modules):
+                # 获取父模块，以便替换子模块
                 parent_name = ".".join(name.split(".")[:-1])
                 child_name = name.split(".")[-1]
                 parent = dict(model.named_modules())[parent_name]
+                # 用 LoRA 包装版本替换原始线性层
                 lora_linear = LinearWithLoRA(module, rank, alpha)
                 setattr(parent, child_name, lora_linear)
                 lora_layers[name] = lora_linear
@@ -290,6 +308,8 @@ def inject_lora(model, target_modules, rank=8, alpha=16):
 ### 步骤 4：计算参数数量
 
 ```python
+# 参数统计器：统计模型的总参数、可训练参数和冻结参数
+# LoRA 的核心价值：可训练参数占比通常不到 1%，却能达到 95-100% 的微调质量
 def count_parameters(model):
     total = sum(p.numel() for p in model.parameters())
     trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -305,21 +325,26 @@ def count_parameters(model):
 ### 步骤 5：合并权重
 
 ```python
+# LoRA 权重合并：将训练好的适配器永久烘焙回基础权重
+# 公式：W' = W + (alpha/r) * B @ A
+# 合并后模型与原始模型大小相同，没有推理开销，无需管理适配器文件
 def merge_lora_weights(model):
     for name, module in model.named_modules():
         if isinstance(module, LinearWithLoRA):
             with torch.no_grad():
+                # 计算 LoRA 更新量并加到原始权重上
                 merged = (
                     module.lora.A @ module.lora.B
                 ) * module.lora.scaling
-                module.linear.weight.data += merged.T
+                module.linear.weight.data += merged.T  # 转置后加到权重矩阵
+            # 用合并后的纯线性层替换 LoRA 包装层
             parent_name = ".".join(name.split(".")[:-1])
             child_name = name.split(".")[-1]
             if parent_name:
                 parent = dict(model.named_modules())[parent_name]
             else:
                 parent = model
-            setattr(parent, child_name, module.linear)
+            setattr(parent, child_name, module.linear)  # 恢复为普通线性层
 ```
 
 合并后，LoRA 层消失了。模型与原始模型大小相同，适配已烘焙到权重中。没有推理开销。
@@ -327,14 +352,19 @@ def merge_lora_weights(model):
 ### 步骤 6：模拟 QLoRA 量化
 
 ```python
+# NF4 量化模拟：将 fp32/fp16 权重压缩到 4-bit 精度
+# NF4 的核心思想：神经网络权重大致遵循正态分布，
+# 将 16 个量化级别放在标准正态分布的分位数上，比均匀量化损失更少信息
 def quantize_to_nf4(tensor, block_size=64):
-    blocks = tensor.reshape(-1, block_size)
-    scales = blocks.abs().max(dim=1, keepdim=True).values / 7.0
-    scales = torch.clamp(scales, min=1e-8)
-    quantized = torch.round(blocks / scales).clamp(-8, 7).to(torch.int8)
+    """将张量量化为 NF4 格式（每 64 个权重共享一个缩放因子）"""
+    blocks = tensor.reshape(-1, block_size)  # 按 block_size 分组
+    scales = blocks.abs().max(dim=1, keepdim=True).values / 7.0  # 计算缩放因子（16级，±8）
+    scales = torch.clamp(scales, min=1e-8)  # 防止除零
+    quantized = torch.round(blocks / scales).clamp(-8, 7).to(torch.int8)  # 量化到 [-8, 7]
     return quantized, scales
 
 def dequantize_from_nf4(quantized, scales, original_shape):
+    """反量化：将 NF4 格式恢复为浮点数（有精度损失）"""
     dequantized = quantized.float() * scales
     return dequantized.reshape(original_shape)
 ```
@@ -344,17 +374,20 @@ def dequantize_from_nf4(quantized, scales, original_shape):
 ### 步骤 7：训练循环
 
 ```python
+# LoRA 训练循环：只更新 LoRA 参数（A 和 B），基础模型权重保持冻结
+# 关键点：optimizer 只包含 requires_grad=True 的参数（即 LoRA 的 A 和 B）
 def train_lora(model, data, epochs=5, lr=1e-3, batch_size=4):
+    # 只优化可训练参数（LoRA 的 A 和 B 矩阵）
     optimizer = torch.optim.AdamW(
         [p for p in model.parameters() if p.requires_grad], lr=lr
     )
-    criterion = nn.MSELoss()
+    criterion = nn.MSELoss()  # 均方误差损失
 
     losses = []
     for epoch in range(epochs):
         epoch_loss = 0.0
         n_batches = 0
-        indices = torch.randperm(len(data["inputs"]))
+        indices = torch.randperm(len(data["inputs"]))  # 随机打乱数据
 
         for i in range(0, len(indices), batch_size):
             batch_idx = indices[i:i + batch_size]
@@ -364,6 +397,7 @@ def train_lora(model, data, epochs=5, lr=1e-3, batch_size=4):
             output = model(x)
             loss = criterion(output, y)
 
+            # 标准训练三步：清零梯度 → 反向传播 → 更新参数
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -380,11 +414,14 @@ def train_lora(model, data, epochs=5, lr=1e-3, batch_size=4):
 ### 步骤 8：完整演示
 
 ```python
+# 完整 LoRA 演示：创建模型 → 注入 LoRA → 训练 → 合并权重
+# 展示 LoRA 的完整生命周期和参数变化
 def demo():
     torch.manual_seed(42)
     d_model = 256
     n_classes = 10
 
+    # 创建一个简单的 3 层 MLP
     model = nn.Sequential(
         nn.Linear(d_model, 512),
         nn.ReLU(),
@@ -393,6 +430,7 @@ def demo():
         nn.Linear(512, n_classes),
     )
 
+    # 生成模拟数据：500 个样本，256 维特征，10 个类别
     n_samples = 500
     x = torch.randn(n_samples, d_model)
     y = torch.randint(0, n_classes, (n_samples,))
@@ -400,24 +438,29 @@ def demo():
 
     data = {"inputs": x, "targets": y_onehot}
 
+    # 记录注入 LoRA 前的参数数量
     params_before = count_parameters(model)
 
+    # 向第 0 层和第 2 层（两个线性层）注入 LoRA
     lora_layers = inject_lora(
         model, target_modules=["0", "2"], rank=8, alpha=16
     )
 
+    # 记录注入 LoRA 后的参数数量（可训练参数应大幅减少）
     params_after = count_parameters(model)
 
+    # 训练 LoRA（只更新 A 和 B 矩阵）
     losses = train_lora(model, data, epochs=20, lr=1e-3)
 
+    # 将 LoRA 权重合并回基础模型
     merge_lora_weights(model)
     params_merged = count_parameters(model)
 
     return {
-        "params_before": params_before,
-        "params_after": params_after,
-        "params_merged": params_merged,
-        "losses": losses,
+        "params_before": params_before,   # 注入前：全部参数可训练
+        "params_after": params_after,     # 注入后：仅 LoRA 参数可训练（~1%）
+        "params_merged": params_merged,   # 合并后：恢复原始架构，适配已烘焙
+        "losses": losses,                 # 训练损失曲线
     }
 ```
 
@@ -428,43 +471,50 @@ def demo():
 使用 Hugging Face 生态系统，在真实模型上应用 LoRA 只需约 20 行代码：
 
 ```python
+# Hugging Face PEFT 库：用约 20 行代码在真实 LLM 上应用 LoRA
+# 对比从零实现的 200+ 行代码，生产中应使用 PEFT 库
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from peft import LoraConfig, get_peft_model, TaskType
 
+# 加载预训练模型和分词器
 model = AutoModelForCausalLM.from_pretrained("meta-llama/Llama-3.1-8B")
 tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.1-8B")
 
+# LoRA 配置：rank=16, alpha=32（alpha=2*rank 是常见约定）
 lora_config = LoraConfig(
-    task_type=TaskType.CAUSAL_LM,
-    r=16,
-    lora_alpha=32,
-    lora_dropout=0.05,
-    target_modules=["q_proj", "v_proj"],
+    task_type=TaskType.CAUSAL_LM,        # 任务类型：因果语言模型
+    r=16,                                 # 秩：控制适配的表达能力
+    lora_alpha=32,                        # 缩放因子：2 * rank
+    lora_dropout=0.05,                    # Dropout：防止过拟合
+    target_modules=["q_proj", "v_proj"],  # 目标层：注意力的查询和值投影
 )
 
+# 注入 LoRA 适配器
 model = get_peft_model(model, lora_config)
-model.print_trainable_parameters()
+model.print_trainable_parameters()  # 通常显示约 0.5-1% 参数可训练
 ```
 
 对于 QLoRA，添加 bitsandbytes 量化：
 
 ```python
+# QLoRA 配置：将基础模型量化到 4-bit，在上面训练 fp16 的 LoRA 适配器
+# 效果：7B 模型从需要 56GB 显存降到只需 ~6GB，可在消费级 GPU 上运行
 from transformers import BitsAndBytesConfig
 
 bnb_config = BitsAndBytesConfig(
-    load_in_4bit=True,
-    bnb_4bit_quant_type="nf4",
-    bnb_4bit_compute_dtype=torch.bfloat16,
-    bnb_4bit_use_double_quant=True,
+    load_in_4bit=True,                    # 4-bit 加载基础模型
+    bnb_4bit_quant_type="nf4",            # NF4 量化：专为正态分布权重优化
+    bnb_4bit_compute_dtype=torch.bfloat16, # 计算时使用 bfloat16 精度
+    bnb_4bit_use_double_quant=True,       # 双重量化：进一步压缩量化常量的内存
 )
 
 model = AutoModelForCausalLM.from_pretrained(
     "meta-llama/Llama-3.1-8B",
-    quantization_config=bnb_config,
-    device_map="auto",
+    quantization_config=bnb_config,  # 应用 4-bit 量化
+    device_map="auto",               # 自动分配到可用 GPU
 )
 
-model = get_peft_model(model, lora_config)
+model = get_peft_model(model, lora_config)  # 在量化模型上添加 LoRA
 ```
 
 就是这样。相同的训练循环。相同的数据管道。基础模型现在以 4-bit 存储，LoRA 适配器以 fp16 训练，整个东西只需 6GB。
@@ -472,21 +522,24 @@ model = get_peft_model(model, lora_config)
 使用 Hugging Face Trainer 进行训练：
 
 ```python
+# 使用 Hugging Face Trainer 进行 LoRA/QLoRA 训练
+# Trainer 封装了训练循环、梯度累积、混合精度、检查点保存等
 from transformers import TrainingArguments, Trainer
 from datasets import load_dataset
 
+# 加载 Alpaca 指令数据集的前 5000 条作为演示
 dataset = load_dataset("tatsu-lab/alpaca", split="train[:5000]")
 
 training_args = TrainingArguments(
     output_dir="./lora-llama",
-    num_train_epochs=3,
-    per_device_train_batch_size=4,
-    gradient_accumulation_steps=4,
-    learning_rate=2e-4,
-    fp16=True,
+    num_train_epochs=3,               # 训练 3 个 epoch
+    per_device_train_batch_size=4,    # 每 GPU 批次大小
+    gradient_accumulation_steps=4,    # 梯度累积 4 步，等效 batch_size=16
+    learning_rate=2e-4,               # LoRA 常用学习率（比全量微调高）
+    fp16=True,                        # 混合精度训练
     logging_steps=10,
-    save_strategy="epoch",
-    optim="paged_adamw_8bit",
+    save_strategy="epoch",            # 每个 epoch 保存一次检查点
+    optim="paged_adamw_8bit",         # 分页 8-bit Adam：防止长序列 OOM
 )
 
 trainer = Trainer(
@@ -497,6 +550,7 @@ trainer = Trainer(
 
 trainer.train()
 
+# 只保存 LoRA 适配器（10-100MB），基础模型不变
 model.save_pretrained("./lora-adapter")
 ```
 

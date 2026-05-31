@@ -164,16 +164,21 @@ graph TD
 你无法预算你无法衡量的东西。构建一个简单的 token 计数器（使用空格分割进行近似，因为精确计数取决于分词器）。
 
 ```python
+# Token 计数器：近似计算文本的 token 数量
+# 精确计数取决于具体的分词器（如 BPE、SentencePiece），
+# 这里用 "单词数 × 1.3" 作为快速近似（英文中 1 个单词平均约 1.3 个 token）
 import json
 import numpy as np
 from collections import OrderedDict
 
 def count_tokens(text):
+    """近似计算文本的 token 数：单词数 × 1.3"""
     if not text:
         return 0
     return int(len(text.split()) * 1.3)
 
 def count_tokens_json(obj):
+    """计算 JSON 对象序列化后的 token 数"""
     return count_tokens(json.dumps(obj))
 ```
 
@@ -182,26 +187,32 @@ def count_tokens_json(obj):
 核心抽象。预算管理器跟踪每个组件使用的 token 数并强制执行限制。
 
 ```python
+# 上下文预算管理器：核心抽象，跟踪每个组件的 token 用量并强制执行限制
+# 类比：就像财务预算——总额度有限，每个部门（组件）有分配上限，超支就截断
 class ContextBudget:
     def __init__(self, max_tokens=128000, generation_reserve=4000):
-        self.max_tokens = max_tokens
-        self.generation_reserve = generation_reserve
-        self.available = max_tokens - generation_reserve
-        self.allocations = OrderedDict()
+        self.max_tokens = max_tokens            # 窗口总容量（如 128K tokens）
+        self.generation_reserve = generation_reserve  # 为模型回复预留的空间
+        self.available = max_tokens - generation_reserve  # 可分配给输入的 token 数
+        self.allocations = OrderedDict()        # 记录每个组件实际占用的 token 数
 
     def allocate(self, component, content, max_tokens=None):
+        """为指定组件分配 token 预算，超限时自动截断内容"""
         tokens = count_tokens(content)
+
+        # 如果该组件有单独的上限，先截断到上限
         if max_tokens and tokens > max_tokens:
             words = content.split()
             target_words = int(max_tokens / 1.3)
             content = " ".join(words[:target_words])
             tokens = count_tokens(content)
 
+        # 检查总预算是否够用，不够则进一步截断
         used = sum(self.allocations.values())
         if used + tokens > self.available:
             allowed = self.available - used
             if allowed <= 0:
-                return None, 0
+                return None, 0  # 预算已耗尽，无法分配
             words = content.split()
             target_words = int(allowed / 1.3)
             content = " ".join(words[:target_words])
@@ -211,14 +222,17 @@ class ContextBudget:
         return content, tokens
 
     def remaining(self):
+        """返回剩余可用 token 数"""
         used = sum(self.allocations.values())
         return self.available - used
 
     def utilization(self):
+        """返回窗口利用率（0.0-1.0）"""
         used = sum(self.allocations.values())
         return used / self.max_tokens
 
     def report(self):
+        """生成可视化预算报告，用 # 号柱状图展示各组件占比"""
         total_used = sum(self.allocations.values())
         lines = []
         lines.append(f"Context Budget Report ({self.max_tokens:,} token window)")
@@ -239,19 +253,26 @@ class ContextBudget:
 实现重排序策略：最重要的项目放在最前和最后，最不重要的放在中间。
 
 ```python
+# "中间迷失"重排序：将最重要的内容放在开头和结尾，次重要的放在中间
+# 原因：LLM 对上下文开头和结尾的关注度更高，中间位置的信息容易被忽略
+# 策略：奇数索引放前面（第1、3、5...），偶数索引放后面（第2、4、6...倒序）
 def reorder_lost_in_middle(items, scores):
+    # 先按相关性分数降序排列
     paired = sorted(zip(scores, items), reverse=True)
     sorted_items = [item for _, item in paired]
 
     if len(sorted_items) <= 2:
         return sorted_items
 
-    first_half = sorted_items[::2]
-    second_half = sorted_items[1::2]
-    second_half.reverse()
+    # 交错放置：最高分放第1位，次高分放最后，第3高分放第2位...
+    first_half = sorted_items[::2]     # 奇数索引：0, 2, 4...
+    second_half = sorted_items[1::2]   # 偶数索引：1, 3, 5...
+    second_half.reverse()              # 倒序：让较高分的靠近末尾
 
     return first_half + second_half
 
+# 相关性评分：用词重叠度衡量查询与文档的相关性（简易版）
+# 生产环境中应使用 embedding 余弦相似度或交叉编码器
 def score_relevance(query, documents):
     query_words = set(query.lower().split())
     scores = []
@@ -260,6 +281,7 @@ def score_relevance(query, documents):
         if not query_words:
             scores.append(0.0)
             continue
+        # 重叠度 = 查询中出现在文档中的词数 / 查询总词数
         overlap = len(query_words & doc_words) / len(query_words)
         scores.append(round(overlap, 3))
     return scores
@@ -270,29 +292,36 @@ def score_relevance(query, documents):
 摘要化旧的对话轮次以回收 token 预算。
 
 ```python
+# 对话历史管理器：自动压缩旧对话轮次，回收 token 预算
+# 策略：当历史超过阈值时，将最早的对话轮次摘要化，
+# 保留最近的轮次作为详细上下文
 class ConversationManager:
     def __init__(self, max_history_tokens=5000):
-        self.turns = []
-        self.summaries = []
-        self.max_history_tokens = max_history_tokens
+        self.turns = []                    # 当前保留的详细对话轮次
+        self.summaries = []                # 被压缩的旧对话摘要
+        self.max_history_tokens = max_history_tokens  # 历史 token 上限
 
     def add_turn(self, role, content):
+        """添加新对话轮次，必要时自动压缩"""
         self.turns.append({"role": role, "content": content})
         self._compress_if_needed()
 
     def _compress_if_needed(self):
+        """如果总 token 数超限，将最早的 2 轮压缩为摘要"""
         total = sum(count_tokens(t["content"]) for t in self.turns)
         if total <= self.max_history_tokens:
             return
 
+        # 每次压缩 2 轮（1 个问答对），至少保留最近 4 轮
         while total > self.max_history_tokens and len(self.turns) > 4:
-            old_turns = self.turns[:2]
+            old_turns = self.turns[:2]         # 取最早的 2 轮
             summary = self._summarize_turns(old_turns)
-            self.summaries.append(summary)
-            self.turns = self.turns[2:]
+            self.summaries.append(summary)     # 存入摘要列表
+            self.turns = self.turns[2:]        # 从详细列表中移除
             total = sum(count_tokens(t["content"]) for t in self.turns)
 
     def _summarize_turns(self, turns):
+        """将对话轮次压缩为简短摘要（截断到 100 字符）"""
         parts = []
         for t in turns:
             content = t["content"]
@@ -302,6 +331,7 @@ class ConversationManager:
         return "Previous: " + " | ".join(parts)
 
     def get_context(self):
+        """获取格式化的对话上下文：摘要 + 最近对话"""
         parts = []
         if self.summaries:
             parts.append("[Conversation Summary]")
@@ -313,6 +343,7 @@ class ConversationManager:
         return "\n".join(parts)
 
     def token_count(self):
+        """返回当前对话上下文的 token 总数"""
         return count_tokens(self.get_context())
 ```
 
@@ -321,11 +352,13 @@ class ConversationManager:
 只包含与当前查询相关的工具。分类意图，然后过滤。
 
 ```python
+# 工具注册表：每个工具定义了描述、token 成本和所属类别
+# 类别用于意图分类后按需选择，避免将所有工具塞入上下文
 TOOL_REGISTRY = {
     "read_file": {
         "description": "Read contents of a file",
-        "tokens": 120,
-        "categories": ["code", "files"],
+        "tokens": 120,                    # 该工具定义占用的 token 数
+        "categories": ["code", "files"],  # 关联的意图类别
     },
     "write_file": {
         "description": "Write content to a file",
@@ -374,9 +407,12 @@ TOOL_REGISTRY = {
     },
 }
 
+# 意图分类器：根据查询中的关键词判断用户意图（可属于多个类别）
+# 生产环境中应使用 embedding 相似度或小型分类模型
 def classify_intent(query):
     query_lower = query.lower()
 
+    # 每个意图类别对应的关键词
     intent_keywords = {
         "code": ["code", "function", "bug", "error", "file", "implement", "refactor", "debug", "test"],
         "calendar": ["meeting", "schedule", "calendar", "appointment", "event"],
@@ -385,6 +421,7 @@ def classify_intent(query):
         "data": ["data", "query", "database", "chart", "graph", "analytics", "sql"],
     }
 
+    # 统计每个意图类别命中的关键词数
     scores = {}
     for intent, keywords in intent_keywords.items():
         score = sum(1 for kw in keywords if kw in query_lower)
@@ -392,17 +429,21 @@ def classify_intent(query):
             scores[intent] = score
 
     if not scores:
-        return ["code"]
+        return ["code"]  # 默认意图
 
+    # 返回得分≥最高分50%的所有意图（支持多意图查询）
     max_score = max(scores.values())
     return [intent for intent, score in scores.items() if score >= max_score * 0.5]
 
+# 动态工具选择器：只包含与当前查询相关的工具，节省 token 预算
+# 效果：从 10 个工具（~1500 tokens）缩减到 3-4 个（~500 tokens）
 def select_tools(query, token_budget=2000):
     intents = classify_intent(query)
     relevant = {}
     total_tokens = 0
 
     for name, tool in TOOL_REGISTRY.items():
+        # 工具的类别与查询意图有交集则选中
         if any(cat in intents for cat in tool["categories"]):
             if total_tokens + tool["tokens"] <= token_budget:
                 relevant[name] = tool
@@ -416,6 +457,8 @@ def select_tools(query, token_budget=2000):
 将所有组件串联起来。给定一个查询，动态组装最优上下文。
 
 ```python
+# 上下文引擎：将所有组件串联成完整的动态上下文组装流水线
+# 核心理念：不同的查询需要不同的上下文，静态配置是浪费的
 class ContextEngine:
     def __init__(self, max_tokens=128000, generation_reserve=4000):
         self.budget = ContextBudget(max_tokens, generation_reserve)
@@ -425,6 +468,7 @@ class ContextEngine:
             "code editing, file management, web search, and data analysis. "
             "Use the appropriate tools for each task. Be concise and accurate."
         )
+        # 模拟知识库：生产环境中是向量数据库中的文档块
         self.knowledge_base = [
             "Python 3.12 introduced type parameter syntax for generic classes using bracket notation.",
             "The project uses PostgreSQL 16 with pgvector for embedding storage.",
@@ -437,14 +481,19 @@ class ContextEngine:
         ]
 
     def assemble(self, query):
+        """动态组装上下文：按优先级分配 token 给各组件"""
+        # 重置预算（每次查询重新分配）
         self.budget = ContextBudget(self.budget.max_tokens, self.budget.generation_reserve)
 
+        # 第1步：系统提示词（最高优先级，始终包含）
         system_content, _ = self.budget.allocate("system_prompt", self.system_prompt, max_tokens=1000)
 
+        # 第2步：动态选择相关工具（按查询意图过滤）
         tools, tool_tokens = select_tools(query, token_budget=2000)
         tool_text = json.dumps(list(tools.keys()))
         tool_content, _ = self.budget.allocate("tools", tool_text, max_tokens=2000)
 
+        # 第3步：检索相关文档并重排（避免"中间迷失"）
         relevance = score_relevance(query, self.knowledge_base)
         threshold = 0.1
         relevant_docs = [
@@ -458,22 +507,26 @@ class ContextEngine:
             doc_text = "\n".join(reordered)
             doc_content, _ = self.budget.allocate("retrieved_context", doc_text, max_tokens=3000)
 
+        # 第4步：对话历史（可能已被压缩为摘要）
         history_text = self.conversation.get_context()
         if history_text.strip():
             history_content, _ = self.budget.allocate("conversation_history", history_text, max_tokens=5000)
 
+        # 第5步：用户查询（最后分配，确保总是有空间）
         query_content, _ = self.budget.allocate("user_query", query, max_tokens=500)
 
         return self.budget
 
-    def chat(self, query):
+    def chat(self):
+        """模拟一轮对话：添加历史 → 组装上下文 → 生成回复"""
         self.conversation.add_turn("user", query)
         budget = self.assemble(query)
-        response = f"[Response to: {query[:50]}...]"
+        response = f"[Response to: {query[:50]}...]"  # 模拟回复
         self.conversation.add_turn("assistant", response)
         return budget
 
 
+# 完整演示：展示不同查询类型的上下文组装差异
 def run_demo():
     print("=" * 60)
     print("  Context Engineering Pipeline Demo")
@@ -481,14 +534,17 @@ def run_demo():
 
     engine = ContextEngine(max_tokens=128000, generation_reserve=4000)
 
+    # 查询1：代码任务——应该选择 code 类工具
     print("\n--- Query 1: Code task ---")
     budget = engine.chat("Fix the bug in the authentication module where JWT tokens expire too early")
     print(budget.report())
 
+    # 查询2：研究任务——应该选择 research 类工具
     print("\n--- Query 2: Research task ---")
     budget = engine.chat("What is the best approach for implementing vector search in PostgreSQL?")
     print(budget.report())
 
+    # 查询3：积累大量对话历史后——应触发历史摘要化
     print("\n--- Query 3: After conversation history builds up ---")
     for i in range(8):
         engine.conversation.add_turn("user", f"Follow-up question number {i+1} about the implementation details of the system")
@@ -497,6 +553,7 @@ def run_demo():
     budget = engine.chat("Now implement the changes we discussed")
     print(budget.report())
 
+    # 工具选择示例：不同查询触发不同工具集
     print("\n--- Tool Selection Examples ---")
     test_queries = [
         "Fix the bug in auth.py",
@@ -512,6 +569,7 @@ def run_demo():
         print(f"  Intents: {intents}")
         print(f"  Tools: {list(tools.keys())} ({tokens} tokens)")
 
+    # "中间迷失"重排序演示
     print("\n--- Lost-in-the-Middle Reordering ---")
     docs = ["Doc A (most relevant)", "Doc B (somewhat relevant)", "Doc C (least relevant)",
             "Doc D (relevant)", "Doc E (moderately relevant)"]

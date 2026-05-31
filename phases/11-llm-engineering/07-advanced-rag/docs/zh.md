@@ -175,6 +175,11 @@ graph TD
 ### 步骤 1：BM25 实现
 
 ```python
+# BM25 关键词搜索实现：自 1990 年代以来搜索引擎的核心算法
+# 与语义搜索互补：BM25 擅长精确匹配（如错误代码、产品型号），
+# 语义搜索擅长含义匹配（如同义词、改述）
+# k1=1.2: 词频饱和度参数，控制重复词的边际收益递减速度
+# b=0.75: 长度归一化参数，防止长文档因包含更多词而获得不公平优势
 import math
 from collections import Counter
 
@@ -182,13 +187,14 @@ class BM25:
     def __init__(self, k1=1.2, b=0.75):
         self.k1 = k1
         self.b = b
-        self.docs = []
-        self.doc_lengths = []
-        self.avg_dl = 0
-        self.doc_freqs = {}
-        self.n_docs = 0
+        self.docs = []            # 存储原始文档文本
+        self.doc_lengths = []     # 每个文档的词数
+        self.avg_dl = 0           # 平均文档长度（用于长度归一化）
+        self.doc_freqs = {}       # 每个词出现在多少个文档中（用于计算 IDF）
+        self.n_docs = 0           # 文档总数
 
     def index(self, documents):
+        """构建 BM25 索引：统计每个词的文档频率和平均文档长度"""
         self.docs = documents
         self.n_docs = len(documents)
         self.doc_lengths = []
@@ -197,13 +203,18 @@ class BM25:
         for doc in documents:
             words = doc.lower().split()
             self.doc_lengths.append(len(words))
-            unique_words = set(words)
+            unique_words = set(words)  # 每个词在每个文档中只计一次
             for word in unique_words:
                 self.doc_freqs[word] = self.doc_freqs.get(word, 0) + 1
 
         self.avg_dl = sum(self.doc_lengths) / self.n_docs if self.n_docs else 1
 
     def score(self, query, doc_idx):
+        """计算查询与指定文档的 BM25 分数
+        核心公式：IDF(t) * (tf * (k1+1)) / (tf + k1 * (1-b+b*|d|/avgdl))
+        - tf 越高分数越高，但有饱和上限（k1 控制）
+        - IDF 越高的词（越罕见）权重越大
+        - 文档长度通过 b 参数归一化"""
         query_words = query.lower().split()
         doc_words = self.docs[doc_idx].lower().split()
         doc_len = self.doc_lengths[doc_idx]
@@ -213,16 +224,17 @@ class BM25:
         for term in query_words:
             if term not in word_counts:
                 continue
-            tf = word_counts[term]
-            df = self.doc_freqs.get(term, 0)
-            idf = math.log((self.n_docs - df + 0.5) / (df + 0.5) + 1)
-            numerator = tf * (self.k1 + 1)
-            denominator = tf + self.k1 * (1 - self.b + self.b * doc_len / self.avg_dl)
+            tf = word_counts[term]                    # 词在文档中的出现次数
+            df = self.doc_freqs.get(term, 0)          # 包含该词的文档数
+            idf = math.log((self.n_docs - df + 0.5) / (df + 0.5) + 1)  # 逆文档频率
+            numerator = tf * (self.k1 + 1)            # 词频项（带饱和）
+            denominator = tf + self.k1 * (1 - self.b + self.b * doc_len / self.avg_dl)  # 长度归一化
             score += idf * numerator / denominator
 
         return score
 
     def search(self, query, top_k=10):
+        """搜索：对所有文档计算 BM25 分数，返回 top-k"""
         scores = [(i, self.score(query, i)) for i in range(self.n_docs)]
         scores.sort(key=lambda x: x[1], reverse=True)
         return scores[:top_k]
@@ -231,13 +243,17 @@ class BM25:
 ### 步骤 2：倒数排名融合
 
 ```python
+# 倒数排名融合（RRF）：合并多个排序列表的标准方法
+# 核心思想：使用排名而非原始分数，所以不同系统（向量/BM25）的分数尺度差异不重要
+# k=60: 防止排名第一的结果主导融合分数
+# 公式：RRF_score(d) = Σ 1/(k + rank)，在所有列表中排名都靠前的文档获得最高分
 def reciprocal_rank_fusion(ranked_lists, k=60):
     scores = {}
     for ranked_list in ranked_lists:
         for rank, (doc_id, _) in enumerate(ranked_list):
             if doc_id not in scores:
                 scores[doc_id] = 0.0
-            scores[doc_id] += 1.0 / (k + rank + 1)
+            scores[doc_id] += 1.0 / (k + rank + 1)  # rank+1 因为 rank 从 0 开始
     fused = sorted(scores.items(), key=lambda x: x[1], reverse=True)
     return fused
 ```
@@ -245,10 +261,17 @@ def reciprocal_rank_fusion(ranked_lists, k=60):
 ### 步骤 3：混合搜索流水线
 
 ```python
+# 混合搜索流水线：并行运行语义搜索和 BM25 关键词搜索，然后用 RRF 合并结果
+# 语义搜索理解含义（"cancel subscription" 匹配 "terminate plan"）
+# BM25 擅长精确匹配（"E-4021" 精确匹配 "E-4021"）
+# 两者互补，融合后效果优于任何单一方法
 def hybrid_search(query, chunks, vector_embeddings, vocab, idf, bm25_index, top_k=5, fusion_k=60):
+    # 第1步：语义搜索——检索 3 倍候选量，给 RRF 更多候选
     query_emb = tfidf_embed(query, vocab, idf)
     vector_results = search(query_emb, vector_embeddings, top_k=top_k * 3)
+    # 第2步：BM25 关键词搜索——同样检索 3 倍候选量
     bm25_results = bm25_index.search(query, top_k=top_k * 3)
+    # 第3步：用倒数排名融合合并两个排序列表
     fused = reciprocal_rank_fusion([vector_results, bm25_results], k=fusion_k)
     return fused[:top_k]
 ```
@@ -258,38 +281,48 @@ def hybrid_search(query, chunks, vector_embeddings, vocab, idf, bm25_index, top_
 在生产中，你会使用交叉编码器模型。这里我们构建一个使用词重叠、词重要性和短语匹配来对查询-文档相关性评分的重排器。
 
 ```python
+# 简易重排器：用词重叠、短语匹配和位置信息对候选重新评分
+# 生产环境中应使用交叉编码器模型（如 Cohere Rerank、bge-reranker），
+# 这里用规则方法演示重排的核心思想：更精细地评估查询-文档相关性
 def rerank(query, candidates, chunks):
     query_words = set(query.lower().split())
+    # 停用词列表：这些词对相关性判断没有贡献
     stop_words = {"the", "a", "an", "is", "are", "was", "were", "what", "how",
                   "why", "when", "where", "do", "does", "for", "of", "in", "to",
                   "and", "or", "on", "at", "by", "it", "its", "this", "that",
                   "with", "from", "be", "has", "have", "had", "not", "but"}
-    query_terms = query_words - stop_words
+    query_terms = query_words - stop_words  # 只保留有实际含义的词
 
     scored = []
     for doc_id, initial_score in candidates:
         chunk = chunks[doc_id].lower()
         chunk_words = set(chunk.split())
 
+        # 信号1：单个词的重叠度（基本相关性）
         term_overlap = len(query_terms & chunk_words)
 
+        # 信号2：二元组（bigram）匹配——连续两个词的匹配比单个词更有意义
+        # 例如 "refund policy" 匹配比单独的 "refund" 和 "policy" 更可靠
         query_bigrams = set()
         q_list = [w for w in query.lower().split() if w not in stop_words]
         for i in range(len(q_list) - 1):
             query_bigrams.add(q_list[i] + " " + q_list[i + 1])
         bigram_matches = sum(1 for bg in query_bigrams if bg in chunk)
 
+        # 信号3：位置加成——查询词出现在文档前 1/3 位置的给予额外分数
+        # 直觉：文档开头通常是主题概述，更可能包含核心信息
         position_boost = 0
         for term in query_terms:
             pos = chunk.find(term)
             if pos != -1 and pos < len(chunk) // 3:
                 position_boost += 0.5
 
+        # 综合评分：加权组合所有信号
         rerank_score = (
-            term_overlap * 1.0
-            + bigram_matches * 2.0
-            + position_boost
-            + initial_score * 5.0
+            term_overlap * 1.0      # 单词重叠权重
+            + bigram_matches * 2.0  # 二元组匹配权重更高
+            + position_boost        # 位置加成
+            + initial_score * 5.0   # 初始检索分数（保留原始排序信号）
         )
         scored.append((doc_id, rerank_score))
 
@@ -300,7 +333,11 @@ def rerank(query, candidates, chunks):
 ### 步骤 5：HyDE（假设文档嵌入）
 
 ```python
+# HyDE（假设文档嵌入）：先生成一个"假设答案"，用它来搜索真实文档
+# 直觉：假设答案在 embedding 空间中比原始问题更接近真实答案
+# 因为问题和答案的语言结构不同，HyDE 弥合了"问题空间"和"答案空间"的差距
 def hyde_generate_hypothesis(query):
+    """根据查询类型生成假设答案（模板版，生产中用 LLM 生成）"""
     templates = {
         "what": "The answer to '{query}' is as follows: Based on our documentation, {topic} involves specific policies and procedures that define how the process works.",
         "how": "To address '{query}': The process involves several steps. First, you need to initiate the request. Then, the system processes it according to the defined rules.",
@@ -314,6 +351,7 @@ def hyde_generate_hypothesis(query):
     else:
         template = templates["default"]
 
+    # 提取查询中的关键词作为主题
     topic_words = [w for w in query.lower().split()
                    if w not in {"what", "is", "the", "how", "do", "does", "a", "an",
                                 "for", "of", "to", "in", "on", "at", "by", "and", "or"}]
@@ -323,35 +361,41 @@ def hyde_generate_hypothesis(query):
 
 
 def hyde_search(query, chunks, vector_embeddings, vocab, idf, top_k=5):
-    hypothesis = hyde_generate_hypothesis(query)
-    hypothesis_emb = tfidf_embed(hypothesis, vocab, idf)
-    results = search(hypothesis_emb, vector_embeddings, top_k)
+    """HyDE 搜索：生成假设答案 → 嵌入 → 搜索相似的真实文档"""
+    hypothesis = hyde_generate_hypothesis(query)       # 生成假设答案
+    hypothesis_emb = tfidf_embed(hypothesis, vocab, idf)  # 嵌入假设答案
+    results = search(hypothesis_emb, vector_embeddings, top_k)  # 用假设答案搜索
     return results, hypothesis
 ```
 
 ### 步骤 6：父子分块
 
 ```python
+# 父子分块：解决"小块精确检索 vs 大块充足上下文"的矛盾
+# 策略：用小块（child）进行精确检索，但返回其父块（parent）给 LLM
+# 效果：查询匹配到精确的小块，但 LLM 获得完整的上下文来生成好答案
 def create_parent_child_chunks(text, parent_size=200, child_size=50):
     words = text.split()
-    parents = []
-    children = []
-    child_to_parent = {}
+    parents = []          # 大块（父块）：提供充足上下文
+    children = []         # 小块（子块）：用于精确检索
+    child_to_parent = {}  # 子块索引 → 父块索引的映射
 
     parent_idx = 0
     start = 0
     while start < len(words):
+        # 创建父块
         parent_end = min(start + parent_size, len(words))
         parent_text = " ".join(words[start:parent_end])
         parents.append(parent_text)
 
+        # 在父块内部创建子块
         child_start = start
         while child_start < parent_end:
             child_end = min(child_start + child_size, parent_end)
             child_text = " ".join(words[child_start:child_end])
             child_idx = len(children)
             children.append(child_text)
-            child_to_parent[child_idx] = parent_idx
+            child_to_parent[child_idx] = parent_idx  # 记录子块属于哪个父块
             child_start += child_size
 
         parent_idx += 1
@@ -363,36 +407,41 @@ def create_parent_child_chunks(text, parent_size=200, child_size=50):
 ### 步骤 7：忠实度评估
 
 ```python
+# 忠实度评估：检查生成的答案是否基于检索到的文档（而非模型幻觉）
+# 方法：将答案拆分为句子，检查每个句子的内容词是否出现在检索上下文中
+# 如果≥50%的内容词在上下文中出现，认为该句子有依据（grounded）
 def evaluate_faithfulness(answer, retrieved_chunks):
     answer_sentences = [s.strip() for s in answer.split(".") if len(s.strip()) > 10]
     if not answer_sentences:
         return 1.0, []
 
-    grounded = 0
-    ungrounded = []
+    grounded = 0                    # 有依据的句子数
+    ungrounded = []                 # 无依据的句子列表（可能是幻觉）
     context = " ".join(retrieved_chunks).lower()
 
     for sentence in answer_sentences:
         words = set(sentence.lower().split())
         stop_words = {"the", "a", "an", "is", "are", "was", "were", "and", "or",
                       "to", "of", "in", "for", "on", "at", "by", "it", "this", "that"}
-        content_words = words - stop_words
+        content_words = words - stop_words  # 只看有实际含义的词
         if not content_words:
             grounded += 1
             continue
 
+        # 计算内容词在检索上下文中的覆盖率
         matched = sum(1 for w in content_words if w in context)
         ratio = matched / len(content_words) if content_words else 0
 
-        if ratio >= 0.5:
+        if ratio >= 0.5:            # ≥50% 的内容词有出处
             grounded += 1
         else:
-            ungrounded.append(sentence)
+            ungrounded.append(sentence)  # 标记为可能的幻觉
 
     score = grounded / len(answer_sentences) if answer_sentences else 1.0
     return score, ungrounded
 
-
+# 检索召回率评估：对于已知答案的问题，检查正确文档是否出现在 top-k 中
+# Recall@k = 被检索到的相关文档数 / 总相关文档数
 def evaluate_retrieval_recall(queries_with_relevant, retrieval_fn, k=5):
     total_recall = 0.0
     results = []
@@ -401,7 +450,7 @@ def evaluate_retrieval_recall(queries_with_relevant, retrieval_fn, k=5):
         retrieved = retrieval_fn(query, k)
         retrieved_indices = set(idx for idx, _ in retrieved)
         relevant_set = set(relevant_indices)
-        hits = len(retrieved_indices & relevant_set)
+        hits = len(retrieved_indices & relevant_set)  # 检索到的相关文档数
         recall = hits / len(relevant_set) if relevant_set else 1.0
         total_recall += recall
         results.append({
@@ -420,12 +469,18 @@ def evaluate_retrieval_recall(queries_with_relevant, retrieval_fn, k=5):
 使用真实的交叉编码器进行重排序：
 
 ```python
+# 生产级重排序：使用交叉编码器模型
+# 交叉编码器将查询和文档同时输入模型，捕获细粒度的交互关系
+# 比双编码器准确得多，但速度慢 100-1000 倍，所以只用于对候选集精排
 from sentence_transformers import CrossEncoder
 
-reranker = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
+reranker = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")  # 轻量级交叉编码器
 
 def rerank_with_cross_encoder(query, candidates, chunks, top_k=5):
+    """用交叉编码器对候选文档重新评分"""
+    # 构建 (查询, 文档) 对
     pairs = [(query, chunks[doc_id]) for doc_id, _ in candidates]
+    # 交叉编码器联合处理每对，输出相关性分数
     scores = reranker.predict(pairs)
     scored = list(zip([doc_id for doc_id, _ in candidates], scores))
     scored.sort(key=lambda x: x[1], reverse=True)
@@ -435,11 +490,14 @@ def rerank_with_cross_encoder(query, candidates, chunks, top_k=5):
 使用 Cohere 的托管重排器：
 
 ```python
+# Cohere 托管重排器：无需本地 GPU，通过 API 调用即可获得高质量重排序
+# 多语言支持，混合语料库上召回提升最大
 import cohere
 
 co = cohere.Client()
 
 def rerank_with_cohere(query, candidates, chunks, top_k=5):
+    """使用 Cohere Rerank API 进行云端重排序"""
     docs = [chunks[doc_id] for doc_id, _ in candidates]
     response = co.rerank(
         model="rerank-english-v3.0",
@@ -447,17 +505,22 @@ def rerank_with_cohere(query, candidates, chunks, top_k=5):
         documents=docs,
         top_n=top_k
     )
+    # 将 Cohere 的结果映射回原始文档 ID
     return [(candidates[r.index][0], r.relevance_score) for r in response.results]
 ```
 
 使用真实 LLM 的 HyDE：
 
 ```python
+# 用真实 LLM 生成 HyDE 假设答案（替代模板方法）
+# 关键指令："Do not say you don't know"——强迫模型生成看起来像答案的文本
+# 即使是胡编的，它的 embedding 也比原始问题更接近真实答案
 import anthropic
 
 client = anthropic.Anthropic()
 
 def hyde_with_llm(query):
+    """使用 Claude 生成假设文档，用于 HyDE 检索"""
     response = client.messages.create(
         model="claude-sonnet-4-20250514",
         max_tokens=256,
@@ -472,6 +535,10 @@ def hyde_with_llm(query):
 使用 Weaviate 进行生产级混合搜索：
 
 ```python
+# Weaviate 生产级混合搜索示例
+# alpha 参数控制语义搜索和关键词搜索的平衡：
+# alpha=0.0 → 纯 BM25（关键词），alpha=1.0 → 纯向量（语义），alpha=0.5 → 等权重
+# 大多数生产系统使用 0.3-0.7 之间的 alpha
 import weaviate
 
 client = weaviate.connect_to_local()
@@ -479,7 +546,7 @@ client = weaviate.connect_to_local()
 collection = client.collections.get("Documents")
 response = collection.query.hybrid(
     query="enterprise refund policy",
-    alpha=0.5,
+    alpha=0.5,     # 语义搜索和关键词搜索各占 50%
     limit=10
 )
 ```
