@@ -1,0 +1,86 @@
+[
+  {
+    "stage": "pre",
+    "question": "OpenAI Agents SDK 的五个原语是什么？",
+    "options": [
+      "代理、交接、防护栏、会话、追踪",
+      "节点、边、归约器、检查点器、子图",
+      "计划、工作者、求解器、评估者、反思者",
+      "工具、提示、模型、记忆、追踪"
+    ],
+    "correct": 0,
+    "explanation": "SDK 提供这五个原语。"
+  },
+  {
+    "stage": "pre",
+    "question": "模型如何看到交接？",
+    "options": [
+      "作为自定义 HTTP 端点",
+      "作为名为 transfer_to_<agent_name> 的工具",
+      "作为系统消息",
+      "作为特殊 token"
+    ],
+    "correct": 1,
+    "explanation": "交接以 transfer_to_<agent> 名称形式暴露为工具。"
+  },
+  {
+    "stage": "check",
+    "question": "SDK 提供哪三种防护栏类型？",
+    "options": [
+      "输入、输出和工具防护栏",
+      "前置、后置和内联防护栏",
+      "硬、软和尽力防护栏",
+      "静态、动态和联合防护栏"
+    ],
+    "correct": 0,
+    "explanation": "输入（第一个代理）、输出（最后一个代理）和工具（每个函数工具）防护栏。"
+  },
+  {
+    "stage": "check",
+    "question": "并行防护栏和阻塞防护栏有什么区别？",
+    "options": [
+      "并行与主 LLM 同时运行（较低延迟，触发时浪费 token）；阻塞先运行（触发时不浪费 token）",
+      "阻塞是异步的；并行是同步的",
+      "并行总是花费更多钱",
+      "阻塞只对输出有效"
+    ],
+    "correct": 0,
+    "explanation": "并行优化延迟，代价是触发时浪费 token；阻塞节省 token 但增加延迟。"
+  },
+  {
+    "stage": "check",
+    "question": "SDK 中如何启用追踪？",
+    "options": [
+      "默认关闭；按代理启用",
+      "默认开启；OPENAI_AGENTS_DISABLE_TRACING=1 可退出",
+      "仅通过 OpenTelemetry 收集器",
+      "仅在托管仪表板上"
+    ],
+    "correct": 1,
+    "explanation": "LLM、工具、交接和防护栏的 span 默认发出；环境变量可禁用它们。"
+  },
+  {
+    "stage": "post",
+    "question": "什么是交接漂移？课程建议如何缓解？",
+    "options": [
+      "追踪落后；减少 span 数量",
+      "代理 A 交接给 B，B 又交回给 A，形成循环；添加跳数计数器",
+      "会话溢出；归档旧的",
+      "防护栏失步；重新训练"
+    ],
+    "correct": 1,
+    "explanation": "跳数计数器在转移链无限循环之前限制它们。"
+  },
+  {
+    "stage": "post",
+    "question": "为什么内置工具是防护栏的漏洞？",
+    "options": [
+      "它们比函数工具慢",
+      "工具防护栏仅对函数工具触发；内置工具（文件读取器、网页获取）需要单独的策略",
+      "它们无法被追踪",
+      "它们不支持交接"
+    ],
+    "correct": 1,
+    "explanation": "每工具防护栏覆盖函数工具；内置工具需要单独的策略层。"
+  }
+]

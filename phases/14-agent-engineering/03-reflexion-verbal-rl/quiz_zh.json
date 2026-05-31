@@ -1,0 +1,86 @@
+[
+  {
+    "stage": "pre",
+    "question": "Reflexion 在标准强化学习中取代了什么？",
+    "options": [
+      "用常量奖励替代奖励塑形",
+      "用存储在试验之间的自然语言反思替代梯度更新",
+      "用随机搜索替代策略网络",
+      "用参数记忆替代情景记忆"
+    ],
+    "correct": 1,
+    "explanation": "Reflexion 使用情景记忆中的自然语言反思，而非权重更新。"
+  },
+  {
+    "stage": "pre",
+    "question": "定义 Reflexion 系统的三个组件是什么？",
+    "options": [
+      "规划器、执行器、求解器",
+      "行动者、评估者、自我反思器",
+      "生成器、批评者、优化器",
+      "选择器、扩展器、反向传播器"
+    ],
+    "correct": 1,
+    "explanation": "Reflexion 将代理分解为运行轨迹的行动者、评分的评估者和撰写经验教训的自我反思器。"
+  },
+  {
+    "stage": "check",
+    "question": "哪种评估器类型使用外部二元信号（如单元测试或已知正确答案）？",
+    "options": [
+      "启发式",
+      "标量",
+      "自我评估",
+      "基于投票"
+    ],
+    "correct": 1,
+    "explanation": "标量评估器从真实答案中读取通过/失败信号（ALFWorld 成功、HumanEval 测试）。"
+  },
+  {
+    "stage": "check",
+    "question": "为什么自我评估比标量反馈信号更弱？",
+    "options": [
+      "计算更慢",
+      "判断自己的模型没有外部依据，因此可以对自己的答案盖章放行",
+      "总是需要更大的模型",
+      "无法在工具上运行"
+    ],
+    "correct": 1,
+    "explanation": "自我评估缺乏外部检查，因此自信的幻觉也能得高分；应将其与基于工具的验证配对使用。"
+  },
+  {
+    "stage": "check",
+    "question": "课程列出的 Reflexion 无效的案例是哪个？",
+    "options": [
+      "可以通过测试评分的代码生成",
+      "网络中断等外部瞬时故障",
+      "ALFWorld 导航任务",
+      "HotpotQA 多跳问题"
+    ],
+    "correct": 1,
+    "explanation": "对瞬时外部中断进行反思产生的反思内容对未来的运行没有帮助。"
+  },
+  {
+    "stage": "post",
+    "question": "Reflexion 模式中的记忆腐化是什么？",
+    "options": [
+      "进程重启时丢失反思",
+      "情景缓冲区充满过时或错误的反思，拖慢或偏向未来的试验",
+      "反思被提供商加密",
+      "反思提示超出上下文窗口"
+    ],
+    "correct": 1,
+    "explanation": "累积的过时或错误反思会降低行为质量；可通过压缩或 TTL 来缓解。"
+  },
+  {
+    "stage": "post",
+    "question": "课程中哪个生产模式与 Reflexion 最匹配？",
+    "options": [
+      "Cursor 的应用编辑流程",
+      "Claude Code 的 CLAUDE.md 学习内容预置到未来会话",
+      "OpenAI 的批处理 API",
+      "Anthropic 的提示缓存"
+    ],
+    "correct": 1,
+    "explanation": "CLAUDE.md 学习内容、pro-workflow 的 learn-rule 和 Letta 的睡眠时间计算都将情景反思缓冲区外部化。"
+  }
+]

@@ -1,0 +1,86 @@
+[
+  {
+    "stage": "pre",
+    "question": "Pipecat 管道使用哪两个流方向？",
+    "options": [
+      "读和写",
+      "下游（源到汇）和上游（反馈、取消、插话）",
+      "入站和出站",
+      "热和冷"
+    ],
+    "correct": 1,
+    "explanation": "帧从源到汇向下游流动，用于控制和取消的帧向上游流动。"
+  },
+  {
+    "stage": "pre",
+    "question": "规范的 Pipecat 语音管道是什么？",
+    "options": [
+      "VAD → STT → LLM → TTS → 传输",
+      "TTS → STT → LLM → VAD",
+      "LLM → 嵌入 → 检索 → 回答",
+      "音频 → JSON → SQL → 响应"
+    ],
+    "correct": 0,
+    "explanation": "VAD 检测语音活动，STT 转录，LLM 响应，TTS 语音合成，传输送达。"
+  },
+  {
+    "stage": "check",
+    "question": "LiveKit Agents 提供哪两类语音代理？",
+    "options": [
+      "MultimodalAgent（直接音频）和 VoicePipelineAgent（STT/LLM/TTS 级联）",
+      "BatchAgent 和 StreamAgent",
+      "TextAgent 和 SpeechAgent",
+      "LocalAgent 和 CloudAgent"
+    ],
+    "correct": 0,
+    "explanation": "MultimodalAgent 使用直接音频（Realtime 风格）；VoicePipelineAgent 使用 STT→LLM→TTS 进行文本级控制。"
+  },
+  {
+    "stage": "check",
+    "question": "什么是插话？如何处理？",
+    "options": [
+      "LLM 成本飙升；减少 token",
+      "用户在代理说话时中断；上游取消帧在话语中间停止 TTS",
+      "提供商故障；切换区域",
+      "验证码失败；重试"
+    ],
+    "correct": 1,
+    "explanation": "插话是用户中断；上游取消是 Pipecat 干净处理它的方式。"
+  },
+  {
+    "stage": "check",
+    "question": "课程描述为高端的端到端延迟是多少？",
+    "options": [
+      "约 50ms",
+      "约 450-600ms",
+      "约 1500ms",
+      "约 5000ms"
+    ],
+    "correct": 1,
+    "explanation": "高端技术栈在 450-600ms 左右；800-1200ms 是常见的；超过 1500ms 感觉有问题。"
+  },
+  {
+    "stage": "post",
+    "question": "忽略 STT 置信度会出什么问题？",
+    "options": [
+      "延迟改善",
+      "低置信度转录文本像福音一样传给 LLM，产生错误答案；应根据置信度过滤或请求确认",
+      "TTS 变得更快",
+      "通话变得更便宜"
+    ],
+    "correct": 1,
+    "explanation": "将低置信度 STT 视为真相是语音代理的首要失败模式。"
+  },
+  {
+    "stage": "post",
+    "question": "为什么课程建议在发布前汇总各组件延迟？",
+    "options": [
+      "提供商按延迟计费",
+      "每个组件增加 50-200ms；总和决定体验是否感觉有问题",
+      "它满足合规要求",
+      "WebRTC 要求延迟"
+    ],
+    "correct": 1,
+    "explanation": "发布前汇总整条链（VAD + STT + LLM + TTS + 传输）；目标很紧张。"
+  }
+]

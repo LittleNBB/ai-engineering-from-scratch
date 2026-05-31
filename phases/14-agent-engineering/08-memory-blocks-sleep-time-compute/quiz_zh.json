@@ -1,0 +1,86 @@
+[
+  {
+    "stage": "pre",
+    "question": "Letta 的三个内存层级是什么？",
+    "options": [
+      "缓存、KV、档案",
+      "核心、回忆、档案",
+      "RAM、交换、磁盘",
+      "工作、情景、语义"
+    ],
+    "correct": 1,
+    "explanation": "Letta 使用核心（始终可见）、回忆（对话历史）和档案（外部）三个层级。"
+  },
+  {
+    "stage": "pre",
+    "question": "睡眠时间计算针对哪个生产问题？",
+    "options": [
+      "在关键路径上进行内存整合导致的尾部延迟",
+      "数学问题的更高准确性",
+      "更低的嵌入成本",
+      "更快的 JSON 解析"
+    ],
+    "correct": 0,
+    "explanation": "睡眠时间将修剪/总结/协调移出面向用户的路径，使主要响应保持快速。"
+  },
+  {
+    "stage": "check",
+    "question": "以下哪个属性不是 Letta 中内存块的字段？",
+    "options": [
+      "label",
+      "value",
+      "limit",
+      "embedding_model_version"
+    ],
+    "correct": 3,
+    "explanation": "内存块包含 id、label、value、limit、description；嵌入模型版本不是块模式的一部分。"
+  },
+  {
+    "stage": "check",
+    "question": "为什么睡眠时间代理可以运行比主代理更强的模型？",
+    "options": [
+      "它接收私有 API 密钥",
+      "它不在关键路径上，因此不受延迟约束",
+      "它免于速率限制",
+      "内存操作消耗一半 token"
+    ],
+    "correct": 1,
+    "explanation": "因为它不阻塞用户响应，睡眠时间代理可以更慢、更昂贵。"
+  },
+  {
+    "stage": "check",
+    "question": "Human 和 Persona 块泛化为什么模式？",
+    "options": [
+      "向量嵌入",
+      "任意用户定义的类型化可编辑块（Task、Project、Safety……）",
+      "JSON-RPC 通道",
+      "操作系统进程"
+    ],
+    "correct": 1,
+    "explanation": "Letta 将 MemGPT 的两个块泛化为任何带有 id、label、value、limit、description 的用户定义块。"
+  },
+  {
+    "stage": "post",
+    "question": "这种模式中的静默漂移是什么？",
+    "options": [
+      "主代理从未发现睡眠时间代理在其下方重写了块；通过版本控制和可见差异修复",
+      "缓慢的磁盘写入",
+      "嵌入模型升级",
+      "速率限制抖动"
+    ],
+    "correct": 0,
+    "explanation": "对块进行版本控制并在追踪中显示差异，使睡眠时间重写对主循环可见。"
+  },
+  {
+    "stage": "post",
+    "question": "在 Letta V1 中，什么取代了内联 `Thought:` token 和 send_message/heartbeat 模式？",
+    "options": [
+      "在独立通道发出并跨轮次传递的原生推理",
+      "专门用于思考的第二个 LLM",
+      "更大的系统提示",
+      "用户手动输入的思考"
+    ],
+    "correct": 0,
+    "explanation": "Letta V1（letta_v1_agent）使用提供商级原生推理，而非提示形式的思考。"
+  }
+]

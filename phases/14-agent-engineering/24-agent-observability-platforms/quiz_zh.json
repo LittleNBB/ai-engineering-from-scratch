@@ -1,0 +1,86 @@
+[
+  {
+    "stage": "pre",
+    "question": "2025 年 6 月将原先商业模块开源后，Langfuse 使用什么许可证？",
+    "options": [
+      "GPLv3",
+      "MIT",
+      "Elastic License 2.0",
+      "Apache 2.0"
+    ],
+    "correct": 1,
+    "explanation": "Langfuse 使用 MIT 许可证，包括 LLM-as-judge、标注队列、提示实验和 Playground（2025 年 6 月后）。"
+  },
+  {
+    "stage": "pre",
+    "question": "根据课程，Arize Phoenix 最擅长什么？",
+    "options": [
+      "提示版本管理",
+      "深度代理特定评估：追踪聚类、异常检测、RAG 检索相关性、OpenInference 自动检测",
+      "自动优化循环",
+      "代码静态分析"
+    ],
+    "correct": 1,
+    "explanation": "Phoenix 专注于行为漂移和 RAG 评估，配合 OpenInference 自动检测。"
+  },
+  {
+    "stage": "check",
+    "question": "哪个平台将自动提示优化与防护栏（PII 脱敏、主题约束）和 LLM 判断幻觉检测配对？",
+    "options": [
+      "Langfuse",
+      "Phoenix",
+      "Opik",
+      "Jaeger"
+    ],
+    "correct": 2,
+    "explanation": "Opik 以优化 + 防护栏循环为中心。"
+  },
+  {
+    "stage": "check",
+    "question": "课程推荐哪个平台作为带提示管理的一体化方案？",
+    "options": [
+      "Langfuse",
+      "Phoenix",
+      "Opik",
+      "Datadog APM"
+    ],
+    "correct": 0,
+    "explanation": "Langfuse 端到端覆盖追踪 + 提示管理 + 评估 + 会话回放。"
+  },
+  {
+    "stage": "check",
+    "question": "课程对厂商发布的平台基准测试怎么看？",
+    "options": [
+      "它们是决定性的",
+      "将其视为方向性参考；测量你自己的语料库",
+      "OpenTelemetry 禁止它们",
+      "只有 Opik 的是可靠的"
+    ],
+    "correct": 1,
+    "explanation": "即使引用的 Opik 与 Langfuse 之间 14 倍的差距也应在你自己的数据上测量后再做决定。"
+  },
+  {
+    "stage": "post",
+    "question": "为什么没有评估的追踪被认为是昂贵的日志？",
+    "options": [
+      "磁盘成本高于 CPU",
+      "你看到运行但不评分，因此回归不可见，二分法不可能",
+      "提供商对 span 收费",
+      "Span 无法回放"
+    ],
+    "correct": 1,
+    "explanation": "评估是将追踪转化为可操作质量信号的关键。"
+  },
+  {
+    "stage": "post",
+    "question": "课程对自建 LLM 判断器有什么警告？",
+    "options": [
+      "Apache 2.0 禁止它们",
+      "CRITIC 适用：判断器需要外部依据进行事实验证，否则会盖章放行",
+      "它们仅在 TypeScript 中工作",
+      "它们必须在 GPU 上运行"
+    ],
+    "correct": 1,
+    "explanation": "没有外部基于工具的验证，LLM 判断器会趋向于盖章放行（CRITIC，第 5 课）。"
+  }
+]

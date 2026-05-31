@@ -1,0 +1,86 @@
+[
+  {
+    "stage": "pre",
+    "question": "Anthropic Client SDK 和 Claude Agent SDK 有什么区别？",
+    "options": [
+      "Client SDK 是原始 Messages API；Agent SDK 是 Claude Code 管理器形态，内置工具、MCP、钩子、子代理和会话存储",
+      "Client SDK 收费；Agent SDK 免费",
+      "Client SDK 仅用于 Python",
+      "没有区别"
+    ],
+    "correct": 0,
+    "explanation": "Client SDK 给你循环；Agent SDK 预建了循环。"
+  },
+  {
+    "stage": "pre",
+    "question": "子代理的两个文档记录的用途是什么？",
+    "options": [
+      "并行化和上下文隔离",
+      "缓存和速率限制",
+      "日志和指标",
+      "认证和授权"
+    ],
+    "correct": 0,
+    "explanation": "子代理并发运行独立工作，并通过隔离上下文来保护编排器的上下文预算。"
+  },
+  {
+    "stage": "check",
+    "question": "以下哪个方法不属于会话存储接口？",
+    "options": [
+      "append",
+      "load",
+      "list_subkeys",
+      "compile_prompt"
+    ],
+    "correct": 3,
+    "explanation": "会话存储提供 append、load、list_sessions、delete、list_subkeys；compile_prompt 不是会话 API。"
+  },
+  {
+    "stage": "check",
+    "question": "以下哪个不是 Claude Agent SDK 的生命周期钩子？",
+    "options": [
+      "PreToolUse",
+      "PostToolUse",
+      "PreCompact",
+      "PreEmbedding"
+    ],
+    "correct": 3,
+    "explanation": "钩子包括 PreToolUse、PostToolUse、SessionStart/End、UserPromptSubmit、PreCompact、Stop、Notification。PreEmbedding 不是钩子。"
+  },
+  {
+    "stage": "check",
+    "question": "追踪上下文如何跨代理和 CLI 子进程传播？",
+    "options": [
+      "通过文件系统",
+      "通过传入 CLI 子进程的 W3C 追踪上下文头",
+      "仅通过提供商的仪表板",
+      "仅通过环境变量"
+    ],
+    "correct": 1,
+    "explanation": "调用方的 OTel span 通过 W3C 追踪上下文传播到 CLI 子进程，使整个多进程运行成为一个追踪。"
+  },
+  {
+    "stage": "post",
+    "question": "什么是子代理过度生成？何时发生？",
+    "options": [
+      "为 100 个小任务生成 100 个子代理，开销占主导；应批量处理",
+      "忘记关闭子代理",
+      "在 SessionStart 之前生成",
+      "生成的子代理比 CPU 核心数还多"
+    ],
+    "correct": 0,
+    "explanation": "子代理有开销；应批量处理小任务，而不是每个任务都生成一个。"
+  },
+  {
+    "stage": "post",
+    "question": "与自托管 SDK 相比，Claude Managed Agents 的权衡是什么？",
+    "options": [
+      "用控制换取托管基础设施（长时间异步、内置提示缓存、内置压缩）",
+      "用延迟换取成本",
+      "用工具换取记忆",
+      "用追踪换取流式传输"
+    ],
+    "correct": 0,
+    "explanation": "Managed Agents 是用于长时间异步工作的托管替代方案；更少的控制，更少的运维表面。"
+  }
+]

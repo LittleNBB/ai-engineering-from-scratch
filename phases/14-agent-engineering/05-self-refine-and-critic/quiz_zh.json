@@ -1,0 +1,86 @@
+[
+  {
+    "stage": "pre",
+    "question": "构成 Self-Refine 循环的三个提示是什么？",
+    "options": [
+      "计划、执行、求解",
+      "生成、反馈、精炼",
+      "行动者、评估者、反思者",
+      "搜索、评分、综合"
+    ],
+    "correct": 1,
+    "explanation": "Self-Refine 使用一个模型扮演三个角色：生成、反馈、精炼。"
+  },
+  {
+    "stage": "pre",
+    "question": "为什么 Self-Refine 在精炼步骤需要历史记录？",
+    "options": [
+      "提供商仅在有历史记录时缓存",
+      "没有先前的输出和批评，精炼步骤会重复之前的错误；消融实验显示质量急剧下降",
+      "历史记录用于计费",
+      "它加速 token 生成"
+    ],
+    "correct": 1,
+    "explanation": "精炼提示基于完整历史进行条件化，这样模型不会重复之前的错误。"
+  },
+  {
+    "stage": "check",
+    "question": "CRITIC 相对于 Self-Refine 改变了什么？",
+    "options": [
+      "移除了精炼步骤",
+      "用外部基于工具的验证器替代了自我反馈步骤",
+      "使用更大的模型进行生成",
+      "并行运行反馈步骤"
+    ],
+    "correct": 1,
+    "explanation": "CRITIC 将自我批评替换为通过搜索、代码解释器、计算器或领域验证器路由的验证步骤。"
+  },
+  {
+    "stage": "check",
+    "question": "Anthropic 的哪个工作流模式与 Self-Refine 和 CRITIC 对应（用 Claude 友好的语言）？",
+    "options": [
+      "路由器",
+      "提示链",
+      "评估者-优化者",
+      "并行采样"
+    ],
+    "correct": 2,
+    "explanation": "Anthropic 将此模式命名为评估者-优化者：评估者评分，优化者修订，循环直到收敛。"
+  },
+  {
+    "stage": "check",
+    "question": "什么是盖章循环？课程建议如何避免？",
+    "options": [
+      "总是通过的测试；移除该测试",
+      "相同模型和相同提示批评自己的输出并批准它；使用结构不同的提示或单独的较小批评者",
+      "总是失败的重试；增加预算",
+      "超时的防护栏；扩大超时"
+    ],
+    "correct": 1,
+    "explanation": "相同风格的自我批评会收敛到'看起来不错'；将评估者与优化者区分开。"
+  },
+  {
+    "stage": "post",
+    "question": "OpenAI Agents SDK 中哪个 SDK 功能具有 CRITIC 的形态？",
+    "options": [
+      "Handoffs",
+      "Sessions",
+      "输出防护栏（可调用工具）",
+      "Tracing"
+    ],
+    "correct": 2,
+    "explanation": "输出防护栏验证最终代理输出并可调用工具，匹配 CRITIC 的验证器角色。"
+  },
+  {
+    "stage": "post",
+    "question": "课程为 2026 年评估者-优化者循环推荐什么停止条件？",
+    "options": [
+      "仅在验证器通过时停止",
+      "仅在模型说'可以'时停止",
+      "组合条件：验证器通过 或（模型说'可以' 且 迭代次数 >= 2）或 迭代次数 >= 最大迭代次数",
+      "永远不停止；让代理无限自我改进"
+    ],
+    "correct": 2,
+    "explanation": "组合条件可避免单一条件的失败模式。"
+  }
+]

@@ -1,0 +1,86 @@
+[
+  {
+    "stage": "pre",
+    "question": "在 GenAI 约定中，哪个 span 名称表示代理运行？",
+    "options": [
+      "agent.start",
+      "invoke_agent（可选地以 gen_ai.agent.name 为后缀）",
+      "run_chain",
+      "agent_loop"
+    ],
+    "correct": 1,
+    "explanation": "invoke_agent 是规范名称；设置后代理名称属性会出现在 span 名称中。"
+  },
+  {
+    "stage": "pre",
+    "question": "GenAI SIG 定义了哪三类 span？",
+    "options": [
+      "模型/客户端、代理、工具",
+      "前端、后端、数据库",
+      "读、写、执行",
+      "延迟、错误、吞吐量"
+    ],
+    "correct": 0,
+    "explanation": "模型/客户端（LLM 调用）、代理（创建/调用）、工具（每次调用）是这些类别。"
+  },
+  {
+    "stage": "check",
+    "question": "invoke_agent span 何时使用 CLIENT 与 INTERNAL？",
+    "options": [
+      "始终 INTERNAL",
+      "远程代理服务（OpenAI Assistants、Bedrock Agents）用 CLIENT；进程内框架（LangChain、CrewAI、本地 ReAct）用 INTERNAL",
+      "仅 HTTPS 用 CLIENT",
+      "始终 CLIENT"
+    ],
+    "correct": 1,
+    "explanation": "远程代理调用是 CLIENT；进程内代理运行是 INTERNAL。"
+  },
+  {
+    "stage": "check",
+    "question": "内容捕获（输入和输出）的默认规则是什么？",
+    "options": [
+      "默认捕获所有内容",
+      "检测默认不应捕获；捕获通过 gen_ai.* 属性选择加入",
+      "仅捕获输出，从不捕获输入",
+      "仅在出错时捕获"
+    ],
+    "correct": 1,
+    "explanation": "默认关闭的内容捕获保护 PII 和敏感信息；选择加入是显式的。"
+  },
+  {
+    "stage": "check",
+    "question": "哪个属性标识检索时查阅的语料库或存储？",
+    "options": [
+      "gen_ai.provider.name",
+      "gen_ai.request.model",
+      "gen_ai.data_source.id",
+      "gen_ai.agent.name"
+    ],
+    "correct": 2,
+    "explanation": "gen_ai.data_source.id 标记检索命中的 RAG 语料库或存储。"
+  },
+  {
+    "stage": "post",
+    "question": "课程对生产中存储提示内容有什么建议？",
+    "options": [
+      "在每个 span 上以纯文本捕获完整提示",
+      "将内容外部存储（S3、日志存储），在 span 上记录引用 ID",
+      "从不存储任何内容",
+      "在 span 属性中加密提示"
+    ],
+    "correct": 1,
+    "explanation": "外部存储加指针 ID 可避免 PII 泄露到运维人员可读的追踪中。"
+  },
+  {
+    "stage": "post",
+    "question": "如何选择加入 GenAI 约定的实验性稳定预览？",
+    "options": [
+      "编辑 OTel 收集器配置",
+      "设置 OTEL_SEMCONV_STABILITY_OPT_IN=gen_ai_latest_experimental",
+      "从源代码重新构建 SDK",
+      "付费获取许可证"
+    ],
+    "correct": 1,
+    "explanation": "环境变量固定实验性约定，使属性不会被静默重命名。"
+  }
+]

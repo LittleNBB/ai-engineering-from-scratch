@@ -1,0 +1,86 @@
+[
+  {
+    "stage": "pre",
+    "question": "Claude 计算机使用接收什么输入，发出什么输出？",
+    "options": [
+      "无障碍树输入，键盘/鼠标命令输出",
+      "截图输入（基于视觉），键盘/鼠标命令输出",
+      "DOM XML 输入，JavaScript 输出",
+      "JSON 输入，SQL 输出"
+    ],
+    "correct": 1,
+    "explanation": "Claude 读取像素并发出键盘/鼠标动作；不使用操作系统无障碍 API。"
+  },
+  {
+    "stage": "pre",
+    "question": "Gemini 2.5 Computer Use 的独特安全功能是什么？",
+    "options": [
+      "每步安全服务，在执行前评估每个动作并拒绝不安全的动作",
+      "硬编码的 WAF 规则",
+      "强制验证码",
+      "默认只读模式"
+    ],
+    "correct": 0,
+    "explanation": "Gemini 2.5 Computer Use 提供每步安全分类器作为核心功能。"
+  },
+  {
+    "stage": "check",
+    "question": "课程认为三个模型中哪些是不可信输入？",
+    "options": [
+      "仅 HTTPS 响应",
+      "截图、DOM 文本、工具输出、PDF 内容、任何检索到的内容",
+      "仅 PDF 内容",
+      "没有；一切都是可信的"
+    ],
+    "correct": 1,
+    "explanation": "只有直接用户指令算作权限；其他一切都是不可信的。"
+  },
+  {
+    "stage": "check",
+    "question": "课程引用了 OpenAI CUA 发布时的哪些 OSWorld / WebArena 数字？",
+    "options": [
+      "OSWorld 38.1%，WebArena 58.1%，WebVoyager 87%",
+      "OSWorld 0%，WebArena 0%",
+      "OSWorld 99%，WebArena 99%",
+      "未报告数字"
+    ],
+    "correct": 0,
+    "explanation": "这些是引用的发布数字。"
+  },
+  {
+    "stage": "check",
+    "question": "哪种防御模式不在 2026 年的共识列表中？",
+    "options": [
+      "每步安全分类器",
+      "导航目标的白名单/黑名单",
+      "敏感操作的人在回路",
+      "自动点击对话框以节省时间"
+    ],
+    "correct": 3,
+    "explanation": "自动点击对话框与安全相反；课程建议明确确认。"
+  },
+  {
+    "stage": "post",
+    "question": "课程强调的针对计算机使用代理的主要攻击是什么？",
+    "options": [
+      "网络中断",
+      "恶意页面或 PDF 在检索到的内容中嵌入指令，模型将其视为用户意图",
+      "渲染缓慢",
+      "操作系统更新延迟"
+    ],
+    "correct": 1,
+    "explanation": "将截图或 DOM 文本视为权限是典型的间接提示注入失败。"
+  },
+  {
+    "stage": "post",
+    "question": "何时特别推荐人在回路确认？",
+    "options": [
+      "只读导航时",
+      "登录、购买、文件删除等敏感操作时",
+      "仅当模型请求时",
+      "从不"
+    ],
+    "correct": 1,
+    "explanation": "敏感操作（资金、数据暴露、新登录）需要明确的人工确认。"
+  }
+]

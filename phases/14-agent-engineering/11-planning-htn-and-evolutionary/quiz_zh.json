@@ -1,0 +1,86 @@
+[
+  {
+    "stage": "pre",
+    "question": "相比自由形式的 LLM 计划，HTN 增加了什么？",
+    "options": [
+      "当操作符前置条件和效果被强制执行时的可证明正确性",
+      "更便宜的推理",
+      "更短的提示",
+      "更好的嵌入"
+    ],
+    "correct": 0,
+    "explanation": "HTN 的带有前置条件和效果的符号操作符从构造上保证了健全性。"
+  },
+  {
+    "stage": "pre",
+    "question": "AlphaEvolve 为哪类问题而建？",
+    "options": [
+      "自由形式的散文生成",
+      "具有机器可检查的确定性适应度函数的优化问题",
+      "多轮聊天记忆",
+      "向量搜索排序"
+    ],
+    "correct": 1,
+    "explanation": "进化搜索需要确定性评估器；AlphaEvolve 针对存在这种评估器的领域。"
+  },
+  {
+    "stage": "check",
+    "question": "ChatHTN 如何在使用 LLM 的同时保持计划健全性？",
+    "options": [
+      "它没有保持；健全性是尽力而为的",
+      "LLM 建议仅作为候选分解进入，经过操作符模式验证；符号层拥有正确性",
+      "它在 HTN 轨迹上微调 LLM",
+      "它使用向量数据库"
+    ],
+    "correct": 1,
+    "explanation": "LLM 扩展方法库，但不能绕过操作符的前置条件和效果。"
+  },
+  {
+    "stage": "check",
+    "question": "课程引用了 AlphaEvolve 的哪个结果？",
+    "options": [
+      "56 年来首次在 4×4 复数矩阵乘法上超越 Strassen",
+      "Gemini 推理速度提升 10 倍",
+      "在 HumanEval 上击败 GPT-4",
+      "首次证明 P=NP"
+    ],
+    "correct": 0,
+    "explanation": "AlphaEvolve 为 4×4 复数矩阵乘法找到了 48 次标量乘法，这是 56 年来首次对 Strassen 的改进。"
+  },
+  {
+    "stage": "check",
+    "question": "HTN 中哪个元素是具有前置条件和效果的原始可直接执行动作？",
+    "options": [
+      "任务",
+      "方法",
+      "操作符",
+      "状态"
+    ],
+    "correct": 2,
+    "explanation": "操作符是原语；方法分解复合任务；状态是一组事实。"
+  },
+  {
+    "stage": "post",
+    "question": "课程对没有真实评估器的 AlphaEvolve 有什么警告？",
+    "options": [
+      "它很慢",
+      "询问 LLM 代码是否更好不是适应度函数；评估器必须是确定性的且快速的",
+      "它违反了 Apache 2.0",
+      "它无法在 GPU 上运行"
+    ],
+    "correct": 1,
+    "explanation": "没有确定性评估器，搜索就没有可收敛的信号。"
+  },
+  {
+    "stage": "post",
+    "question": "什么时候应该使用 ReAct 或 ReWOO 而非 HTN 或 AlphaEvolve？",
+    "options": [
+      "永远不会；HTN 严格更优",
+      "当你不需要形式化健全性或机器可检查的适应度时；大多数代理任务属于此类",
+      "当你有 GPU 集群可用时",
+      "当延迟低于 100ms 时"
+    ],
+    "correct": 1,
+    "explanation": "课程明确警告不要过度工程化：大多数任务不需要形式化规划或进化搜索。"
+  }
+]
